@@ -1,0 +1,210 @@
+(
+    entities: [
+        (
+            name: "Sun",
+            transform: Some((
+                position: (0.0, 5.0, 0.0),
+                rotation: (-0.4082179, 0.23456971, -0.10938165, 0.87542605),
+                scale: (1.0, 1.0, 1.0),
+            )),
+            light: Some((
+                kind: Directional,
+                color: (1.0, 0.95, 0.85),
+                intensity: 1.5,
+                range: 10.0,
+                inner_angle: 0.5235988,
+                outer_angle: 0.7853982,
+            )),
+        ),
+        (
+            name: "PointLight",
+            transform: Some((
+                position: (-3.0, 3.0, 2.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 1.0, 1.0),
+            )),
+            light: Some((
+                kind: Point,
+                color: (0.4, 0.6, 1.0),
+                intensity: 1.5,
+                range: 10.0,
+                inner_angle: 0.5235988,
+                outer_angle: 0.7853982,
+            )),
+        ),
+        (
+            name: "WarmLight",
+            transform: Some((
+                position: (3.0, 2.0, -2.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 1.0, 1.0),
+            )),
+            light: Some((
+                kind: Point,
+                color: (1.0, 0.6, 0.2),
+                intensity: 1.2,
+                range: 10.0,
+                inner_angle: 0.5235988,
+                outer_angle: 0.7853982,
+            )),
+        ),
+        (
+            name: "Ground",
+            transform: Some((
+                position: (0.0, -0.05, 0.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (12.0, 0.1, 12.0),
+            )),
+            mesh: Some((
+                name: "builtin:cube",
+                visible: true,
+            )),
+            material: Some((
+                albedo: (0.4, 0.45, 0.4),
+                roughness: 0.95,
+                metallic: 0.0,
+                emission: (0.0, 0.0, 0.0),
+                texture_path: None,
+                normal_map_path: None,
+            )),
+        ),
+        (
+            name: "Cube",
+            transform: Some((
+                position: (0.0, 0.5, 0.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 1.0, 1.0),
+            )),
+            mesh: Some((
+                name: "builtin:cube",
+                visible: true,
+            )),
+            material: Some((
+                albedo: (0.8, 0.8, 0.8),
+                roughness: 0.5,
+                metallic: 0.0,
+                emission: (0.0, 0.0, 0.0),
+                texture_path: None,
+                normal_map_path: None,
+            )),
+            rigid_body: Some((
+                mass: 1.0,
+                gravity_enabled: true,
+                velocity: (0.0, 0.0, 0.0),
+                angular_velocity: (0.0, 0.0, 0.0),
+            )),
+            scripts: [
+                (
+                    name: "Rotate & Pulse",
+                ),
+            ],
+        ),
+        (
+            name: "Sphere",
+            transform: Some((
+                position: (3.0, 1.0, 0.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 1.0, 1.0),
+            )),
+            mesh: Some((
+                name: "builtin:sphere",
+                visible: true,
+            )),
+            material: Some((
+                albedo: (0.3, 0.8, 0.4),
+                roughness: 0.5,
+                metallic: 0.0,
+                emission: (0.0, 0.0, 0.0),
+                texture_path: None,
+                normal_map_path: None,
+            )),
+            scripts: [
+                (
+                    name: "Oscillate",
+                ),
+            ],
+        ),
+        (
+            name: "MetalSphere",
+            transform: Some((
+                position: (-2.5, 0.5, 1.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 1.0, 1.0),
+            )),
+            mesh: Some((
+                name: "builtin:sphere",
+                visible: true,
+            )),
+            material: Some((
+                albedo: (0.9, 0.9, 0.95),
+                roughness: 0.1,
+                metallic: 1.0,
+                emission: (0.0, 0.0, 0.0),
+                texture_path: None,
+                normal_map_path: None,
+            )),
+            rigid_body: Some((
+                mass: 1.0,
+                gravity_enabled: true,
+                velocity: (0.0, 0.0, 0.0),
+                angular_velocity: (0.0, 0.0, 0.0),
+            )),
+            scripts: [
+                (
+                    name: "Gravity Bounce",
+                ),
+            ],
+        ),
+        (
+            name: "RedCube",
+            transform: Some((
+                position: (-1.0, 0.5, -2.5),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 1.0, 1.0),
+            )),
+            mesh: Some((
+                name: "builtin:cube",
+                visible: true,
+            )),
+            material: Some((
+                albedo: (0.9, 0.15, 0.1),
+                roughness: 0.3,
+                metallic: 0.0,
+                emission: (0.0, 0.0, 0.0),
+                texture_path: None,
+                normal_map_path: None,
+            )),
+            rigid_body: Some((
+                mass: 1.0,
+                gravity_enabled: true,
+                velocity: (0.0, 0.0, 0.0),
+                angular_velocity: (0.0, 0.0, 0.0),
+            )),
+        ),
+        (
+            name: "PedestalCube",
+            transform: Some((
+                position: (2.0, 0.15, -2.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (0.8, 0.3, 0.8),
+            )),
+            mesh: Some((
+                name: "builtin:cube",
+                visible: true,
+            )),
+            material: Some((
+                albedo: (0.7, 0.65, 0.5),
+                roughness: 0.7,
+                metallic: 0.0,
+                emission: (0.0, 0.0, 0.0),
+                texture_path: None,
+                normal_map_path: None,
+            )),
+            scripts: [
+                (
+                    name: "Color Cycle",
+                ),
+            ],
+        ),
+    ],
+)
