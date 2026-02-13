@@ -362,6 +362,12 @@ impl EditorLayout {
         editor_ctx: &mut EditorContext,
         scripts: &mut Vec<(EntityId, Box<dyn GameScript>)>,
     ) {
+        // Fullscreen game mode: skip all editor UI
+        if editor_ctx.fullscreen_game {
+            Self::show_fullscreen_game(ctx, game_viewport_texture, world, editor_ctx, scripts);
+            return;
+        }
+
         // Header stays OUTSIDE the dock area (TopBottomPanel)
         header::show_header(ctx, editor_ctx);
 
@@ -392,6 +398,127 @@ impl EditorLayout {
 
         // Asset modal (rendered at egui::Context level, not inside dock)
         Self::show_asset_modal(ctx, editor_ctx);
+    }
+
+    fn show_fullscreen_game(
+        ctx: &egui::Context,
+        game_viewport_texture: Option<egui::TextureId>,
+        world: &World,
+        editor_ctx: &mut EditorContext,
+        scripts: &mut Vec<(EntityId, Box<dyn GameScript>)>,
+    ) {
+        // Keep game viewport texture alive
+        editor_ctx.game_view_visible = true;
+
+        egui::CentralPanel::default()
+            .frame(Frame::NONE.fill(Color32::BLACK))
+            .show(ctx, |ui| {
+                if let Some(tex_id) = game_viewport_texture {
+                    let available = ui.available_size();
+                    ui.image(egui::load::SizedTexture::new(tex_id, available));
+                } else {
+                    ui.centered_and_justified(|ui| {
+                        ui.label(
+                            egui::RichText::new("No main camera in scene.\nPress ESC to return to editor.")
+                                .color(Color32::WHITE)
+                                .size(18.0),
+                        );
+                    });
+                }
+                editor_ctx.game_viewport_rect = ui.min_rect();
+            });
+
+        let game_rect = editor_ctx.game_viewport_rect;
+
+        // HUD: script game_ui overlays (play mode only)
+        if editor_ctx.play_mode && game_viewport_texture.is_some() {
+            let mut scripts_taken = std::mem::take(scripts);
+            for (eid, script) in &mut scripts_taken {
+                let area_id = egui::Id::new("fs_hud").with(eid.index);
+                egui::Area::new(area_id)
+                    .fixed_pos(game_rect.left_top())
+                    .order(egui::Order::Foreground)
+                    .show(ctx, |ui| {
+                        ui.set_clip_rect(game_rect);
+                        ui.set_max_size(game_rect.size());
+                        script.game_ui(ui);
+                    });
+            }
+            *scripts = scripts_taken;
+        }
+
+        // HUD: UiElement/Canvas overlays
+        if game_viewport_texture.is_some() {
+            egui::Area::new(egui::Id::new("fs_ui_elements"))
+                .fixed_pos(game_rect.left_top())
+                .order(egui::Order::Foreground)
+                .show(ctx, |ui| {
+                    ui.set_clip_rect(game_rect);
+                    let painter = ui.painter();
+
+                    for eid in world.iter_entities() {
+                        let Some(el) = world.get_ui_element(eid) else { continue };
+                        if !el.visible { continue; }
+
+                        let ref_rect = if let Some(parent) = world.get_parent(eid) {
+                            if let Some(cv) = world.get_canvas(parent) {
+                                if !cv.visible { continue; }
+                                let scale = (game_rect.width() / cv.width)
+                                    .min(game_rect.height() / cv.height)
+                                    .min(1.0);
+                                let cw = cv.width * scale;
+                                let ch = cv.height * scale;
+                                let cx = game_rect.left() + (game_rect.width() - cw) * 0.5;
+                                let cy = game_rect.top() + (game_rect.height() - ch) * 0.5;
+                                egui::Rect::from_min_size(egui::pos2(cx, cy), egui::vec2(cw, ch))
+                            } else {
+                                game_rect
+                            }
+                        } else {
+                            game_rect
+                        };
+
+                        let anchor_pos = resolve_anchor(el.anchor, ref_rect);
+                        let pos = anchor_pos + egui::vec2(el.offset[0], el.offset[1]);
+                        let r = (el.color.x * 255.0) as u8;
+                        let g = (el.color.y * 255.0) as u8;
+                        let b = (el.color.z * 255.0) as u8;
+                        let a = (el.alpha * 255.0) as u8;
+                        let color = Color32::from_rgba_unmultiplied(r, g, b, a);
+
+                        match el.kind {
+                            crate::core::UiElementKind::Text => {
+                                painter.text(
+                                    pos,
+                                    egui::Align2::LEFT_TOP,
+                                    &el.text,
+                                    egui::FontId::proportional(el.font_size),
+                                    color,
+                                );
+                            }
+                            crate::core::UiElementKind::Panel => {
+                                let rect = egui::Rect::from_min_size(
+                                    pos,
+                                    egui::vec2(el.size[0], el.size[1]),
+                                );
+                                painter.rect_filled(rect, 4.0, color);
+                            }
+                        }
+                    }
+                });
+        }
+
+        // ESC hint overlay
+        egui::Area::new(egui::Id::new("fs_esc_hint"))
+            .anchor(egui::Align2::RIGHT_TOP, [-12.0, 12.0])
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                ui.label(
+                    egui::RichText::new("ESC to exit")
+                        .color(Color32::from_white_alpha(80))
+                        .size(11.0),
+                );
+            });
     }
 
     fn show_asset_modal(ctx: &egui::Context, editor_ctx: &mut EditorContext) {

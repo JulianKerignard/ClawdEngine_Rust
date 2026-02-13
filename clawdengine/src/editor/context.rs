@@ -254,6 +254,8 @@ pub struct EditorContext {
     pub hierarchy_search: String,
     /// Asset browser search query
     pub asset_search: String,
+    /// Fullscreen game mode (all editor panels hidden, game fills window)
+    pub fullscreen_game: bool,
 }
 
 impl EditorContext {
@@ -324,6 +326,7 @@ impl EditorContext {
             inspector_editing: false,
             hierarchy_search: String::new(),
             asset_search: String::new(),
+            fullscreen_game: false,
         }
     }
 

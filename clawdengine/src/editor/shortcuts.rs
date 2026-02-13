@@ -13,6 +13,21 @@ pub fn handle_shortcuts(
     wants_keyboard: bool,
     right_mouse_held: bool,
 ) -> bool {
+    // F5 → enter fullscreen game mode (works even in play mode)
+    if input.is_key_pressed(KeyCode::F5) && !editor_ctx.fullscreen_game {
+        if !editor_ctx.play_mode {
+            editor_ctx.pending_play_toggle = Some(true);
+        }
+        editor_ctx.fullscreen_game = true;
+        return false;
+    }
+
+    // ESC → exit fullscreen (priority over deselect)
+    if input.is_key_pressed(KeyCode::Escape) && editor_ctx.fullscreen_game {
+        editor_ctx.fullscreen_game = false;
+        return false;
+    }
+
     if editor_ctx.play_mode || wants_keyboard {
         return false;
     }

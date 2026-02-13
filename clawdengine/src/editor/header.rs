@@ -212,6 +212,22 @@ pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                     }
                 }
 
+                // Fullscreen game button
+                ui.add_space(6.0);
+                let fs_btn = egui::Button::new(
+                    egui::RichText::new("\u{26F6}")
+                        .color(theme::TEXT_SECONDARY)
+                        .size(14.0),
+                )
+                .fill(Color32::TRANSPARENT)
+                .corner_radius(CornerRadius::same(4));
+                if ui.add(fs_btn).on_hover_text("Fullscreen Game (F5)").clicked() {
+                    if !editor_ctx.play_mode {
+                        editor_ctx.pending_play_toggle = Some(true);
+                    }
+                    editor_ctx.fullscreen_game = true;
+                }
+
                 // Right side: feedback + FPS
                 ui.with_layout(
                     egui::Layout::right_to_left(egui::Align::Center),
