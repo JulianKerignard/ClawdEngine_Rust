@@ -17,7 +17,15 @@ pub enum AppScreen {
 pub enum HubAction {
     NewBlank,
     NewDemo,
-    OpenScene(String),
+    OpenProject(String),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum HubSortMode {
+    NameAsc,
+    NameDesc,
+    DateDesc,
+    DateAsc,
 }
 
 #[derive(Clone, Debug)]
@@ -275,8 +283,16 @@ pub struct EditorContext {
     pub pending_hub_action: Option<HubAction>,
     /// Cached thumbnail textures for the project hub
     pub hub_thumbnails: std::collections::HashMap<String, egui::TextureHandle>,
-    /// Rename modal state: (original_name, text_input)
+    /// Rename modal state: (original_path, text_input)
     pub hub_rename: Option<(String, String)>,
+    /// Hub sort mode
+    pub hub_sort_mode: HubSortMode,
+    /// Hub delete confirmation: project path pending confirmation
+    pub hub_delete_confirm: Option<String>,
+    /// Current project path (absolute) when in editor
+    pub current_project_path: Option<String>,
+    /// Original CWD at startup (restored when returning to hub)
+    pub original_cwd: String,
 }
 
 impl EditorContext {
@@ -352,6 +368,12 @@ impl EditorContext {
             pending_hub_action: None,
             hub_thumbnails: std::collections::HashMap::new(),
             hub_rename: None,
+            hub_sort_mode: HubSortMode::DateDesc,
+            hub_delete_confirm: None,
+            current_project_path: None,
+            original_cwd: std::env::current_dir()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default(),
         }
     }
 

@@ -22,6 +22,8 @@ anyhow = "1.0.101"
 log = "0.4.25"
 env_logger = "0.11.6"
 rodio = "0.21"
+rfd = "0.15"
+chrono = "0.4"
 
 # Optimize everything in dev mode (near-release speed, still with debug info)
 [profile.dev]

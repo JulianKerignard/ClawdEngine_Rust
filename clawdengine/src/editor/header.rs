@@ -51,6 +51,9 @@ pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                             ui.close();
                         }
                         if ui.button("Project Hub").clicked() {
+                            // Restore original CWD when returning to hub
+                            let _ = std::env::set_current_dir(&editor_ctx.original_cwd);
+                            editor_ctx.current_project_path = None;
                             editor_ctx.screen = AppScreen::Hub;
                             ui.close();
                         }
@@ -60,7 +63,12 @@ pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                             ui.close();
                         }
                         ui.separator();
-                        if let Ok(entries) = std::fs::read_dir("assets/scenes") {
+                        let scenes_dir = if editor_ctx.current_project_path.is_some() {
+                            "scenes"
+                        } else {
+                            "assets/scenes"
+                        };
+                        if let Ok(entries) = std::fs::read_dir(scenes_dir) {
                             let mut scenes: Vec<String> = entries.flatten()
                                 .filter_map(|e| {
                                     let p = e.path();

@@ -53,7 +53,7 @@ fn process_hub_action(
         return;
     };
 
-    // Clean existing world (handles returning from editor to hub then selecting again)
+    // Clean existing world
     let existing: Vec<EntityId> = world.iter_entities().collect();
     for eid in existing {
         world.destroy_entity(eid);
@@ -64,23 +64,124 @@ fn process_hub_action(
 
     match action {
         HubAction::NewBlank => {
-            ec.scene_name = "Untitled".to_string();
-            ec.screen = AppScreen::Editor;
-            log::info!("New blank scene");
+            let projects_dir = crate::assets::project::default_projects_dir();
+            let _ = std::fs::create_dir_all(&projects_dir);
+            let parent = projects_dir.to_string_lossy().to_string();
+
+            // Find unique name
+            let mut name = "Untitled".to_string();
+            let mut i = 2;
+            while std::path::Path::new(&format!("{}/{}", parent, name)).exists() {
+                name = format!("Untitled {}", i);
+                i += 1;
+            }
+
+            match crate::assets::project::create_project(&parent, &name) {
+                Ok(path) => {
+                    let mut registry = crate::assets::project::load_registry();
+                    crate::assets::project::register_project(&mut registry, &path);
+                    let _ = crate::assets::project::save_registry(&registry);
+                    let _ = std::env::set_current_dir(&path);
+                    ec.current_project_path = Some(path);
+                    ec.scene_name = "Untitled".to_string();
+                    ec.asset_current_dir = std::path::PathBuf::from(".");
+                    ec.screen = AppScreen::Editor;
+                    ec.refresh_assets();
+                    log::info!("Created new blank project: {}", name);
+                }
+                Err(e) => {
+                    log::error!("Failed to create project: {}", e);
+                }
+            }
         }
         HubAction::NewDemo => {
-            *scripts = super::default_scene::setup_default_scene(
-                world,
-                ec.builtin_meshes.cube,
-                ec.builtin_meshes.sphere,
-            );
-            ec.scene_name = "Demo Scene".to_string();
-            ec.screen = AppScreen::Editor;
-            log::info!("Loaded demo scene");
+            let projects_dir = crate::assets::project::default_projects_dir();
+            let _ = std::fs::create_dir_all(&projects_dir);
+            let parent = projects_dir.to_string_lossy().to_string();
+
+            let mut name = "Demo Scene".to_string();
+            let mut i = 2;
+            while std::path::Path::new(&format!("{}/{}", parent, name)).exists() {
+                name = format!("Demo Scene {}", i);
+                i += 1;
+            }
+
+            match crate::assets::project::create_project(&parent, &name) {
+                Ok(path) => {
+                    let mut registry = crate::assets::project::load_registry();
+                    crate::assets::project::register_project(&mut registry, &path);
+                    let _ = crate::assets::project::save_registry(&registry);
+                    let _ = std::env::set_current_dir(&path);
+
+                    // Copy builtin assets needed by the demo scene
+                    let orig = &ec.original_cwd;
+                    copy_demo_assets(orig, &path);
+
+                    *scripts = super::default_scene::setup_default_scene(
+                        world,
+                        ec.builtin_meshes.cube,
+                        ec.builtin_meshes.sphere,
+                    );
+                    ec.current_project_path = Some(path);
+                    ec.scene_name = "Demo Scene".to_string();
+                    ec.asset_current_dir = std::path::PathBuf::from(".");
+                    ec.screen = AppScreen::Editor;
+                    ec.refresh_assets();
+                    log::info!("Created demo project: {}", name);
+                }
+                Err(e) => {
+                    log::error!("Failed to create demo project: {}", e);
+                }
+            }
         }
-        HubAction::OpenScene(name) => {
-            ec.pending_load_scene = Some(name);
+        HubAction::OpenProject(path) => {
+            let mut registry = crate::assets::project::load_registry();
+            crate::assets::project::register_project(&mut registry, &path);
+            let _ = crate::assets::project::save_registry(&registry);
+
+            let _ = std::env::set_current_dir(&path);
+            ec.current_project_path = Some(path.clone());
+
+            // Load manifest to get default scene
+            if let Ok(manifest) = crate::assets::project::load_manifest(&path) {
+                ec.scene_name = manifest.name.clone();
+                if let Some(scene_name) = &manifest.default_scene {
+                    ec.pending_load_scene = Some(scene_name.clone());
+                }
+            } else {
+                ec.scene_name = "Unknown".to_string();
+            }
+
+            ec.asset_current_dir = std::path::PathBuf::from(".");
             ec.screen = AppScreen::Editor;
+            ec.refresh_assets();
+            log::info!("Opened project: {}", path);
+        }
+    }
+}
+
+fn copy_demo_assets(original_cwd: &str, project_path: &str) {
+    let src_base = std::path::Path::new(original_cwd).join("assets");
+    let dst_base = std::path::Path::new(project_path);
+
+    // Copy textures
+    if let Ok(entries) = std::fs::read_dir(src_base.join("textures")) {
+        for entry in entries.flatten() {
+            let src = entry.path();
+            if src.is_file() {
+                let dst = dst_base.join("textures").join(entry.file_name());
+                let _ = std::fs::copy(&src, &dst);
+            }
+        }
+    }
+    // Copy audio
+    if let Ok(entries) = std::fs::read_dir(src_base.join("audio")) {
+        for entry in entries.flatten() {
+            let src = entry.path();
+            if src.is_file() {
+                let dst = dst_base.join("audio").join(entry.file_name());
+                let _ = std::fs::copy(&src, &dst);
+            }
         }
     }
 }
@@ -703,11 +804,12 @@ fn process_save_scene(
     let Some(scene_name) = ec.pending_save_scene.take() else {
         return;
     };
-    let path = format!("assets/scenes/{}.ron", scene_name);
-    std::fs::create_dir_all("assets/scenes").ok();
+    let scenes_dir = if ec.current_project_path.is_some() { "scenes" } else { "assets/scenes" };
+    let path = format!("{}/{}.ron", scenes_dir, scene_name);
+    std::fs::create_dir_all(scenes_dir).ok();
     match assets::scene::save_scene(world, &scene.mesh_store, scripts, &path) {
         Ok(()) => {
-            let preview_path = format!("assets/scenes/{}.png", scene_name);
+            let preview_path = format!("{}/{}.png", scenes_dir, scene_name);
             if let Err(e) = scene
                 .viewport
                 .capture_to_png(&gpu.device, &gpu.queue, &preview_path)
@@ -734,7 +836,8 @@ fn process_load_scene(
     let Some(scene_name) = ec.pending_load_scene.take() else {
         return;
     };
-    let path = format!("assets/scenes/{}.ron", scene_name);
+    let scenes_dir = if ec.current_project_path.is_some() { "scenes" } else { "assets/scenes" };
+    let path = format!("{}/{}.ron", scenes_dir, scene_name);
     if !std::path::Path::new(&path).exists() {
         ec.save_feedback = Some(("No scene file found".into(), 2.0));
         log::warn!("Scene file not found: {}", path);
