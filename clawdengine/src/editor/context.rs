@@ -275,6 +275,8 @@ pub struct EditorContext {
     pub pending_hub_action: Option<HubAction>,
     /// Cached thumbnail textures for the project hub
     pub hub_thumbnails: std::collections::HashMap<String, egui::TextureHandle>,
+    /// Rename modal state: (original_name, text_input)
+    pub hub_rename: Option<(String, String)>,
 }
 
 impl EditorContext {
@@ -349,6 +351,7 @@ impl EditorContext {
             screen: AppScreen::Hub,
             pending_hub_action: None,
             hub_thumbnails: std::collections::HashMap::new(),
+            hub_rename: None,
         }
     }
 
