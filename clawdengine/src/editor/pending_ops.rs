@@ -4,7 +4,7 @@ use crate::renderer::{GpuContext, SceneRenderer};
 use crate::scripting::{self, GameScript};
 
 use super::context::{
-    ComponentKind, EditorContext, ScriptRegistryEntry, SpawnRequest,
+    AppScreen, ComponentKind, EditorContext, HubAction, ScriptRegistryEntry, SpawnRequest,
 };
 
 /// Process all pending editor operations queued during the UI frame.
@@ -20,6 +20,7 @@ pub fn process_pending_operations(
     scripts_started: &mut bool,
     dt: f32,
 ) {
+    process_hub_action(world, editor_ctx, scripts);
     process_undo(world, editor_ctx);
     process_redo(world, editor_ctx);
     process_spawn(world, editor_ctx);
@@ -41,6 +42,47 @@ pub fn process_pending_operations(
     process_save_scene(world, editor_ctx, scene, gpu, scripts);
     process_load_scene(world, editor_ctx, scene, gpu, scripts);
     tick_save_feedback(editor_ctx, dt);
+}
+
+fn process_hub_action(
+    world: &mut World,
+    ec: &mut EditorContext,
+    scripts: &mut Vec<(EntityId, Box<dyn GameScript>)>,
+) {
+    let Some(action) = ec.pending_hub_action.take() else {
+        return;
+    };
+
+    // Clean existing world (handles returning from editor to hub then selecting again)
+    let existing: Vec<EntityId> = world.iter_entities().collect();
+    for eid in existing {
+        world.destroy_entity(eid);
+    }
+    scripts.clear();
+    ec.deselect_all();
+    ec.undo_stack = super::context::UndoStack::new();
+
+    match action {
+        HubAction::NewBlank => {
+            ec.scene_name = "Untitled".to_string();
+            ec.screen = AppScreen::Editor;
+            log::info!("New blank scene");
+        }
+        HubAction::NewDemo => {
+            *scripts = super::default_scene::setup_default_scene(
+                world,
+                ec.builtin_meshes.cube,
+                ec.builtin_meshes.sphere,
+            );
+            ec.scene_name = "Demo Scene".to_string();
+            ec.screen = AppScreen::Editor;
+            log::info!("Loaded demo scene");
+        }
+        HubAction::OpenScene(name) => {
+            ec.pending_load_scene = Some(name);
+            ec.screen = AppScreen::Editor;
+        }
+    }
 }
 
 fn process_undo(world: &mut World, ec: &mut EditorContext) {

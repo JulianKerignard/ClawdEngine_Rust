@@ -1,6 +1,6 @@
 use egui::{Color32, CornerRadius, Frame, Margin, Stroke};
 
-use super::context::{AssetModal, EditorContext, EditorTool};
+use super::context::{AppScreen, AssetModal, EditorContext, EditorTool};
 use super::theme;
 
 pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
@@ -48,6 +48,10 @@ pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                     |ui| {
                         if ui.button("New Scene").clicked() {
                             editor_ctx.asset_modal = Some(AssetModal::NewScene { name: "New Scene".to_string() });
+                            ui.close();
+                        }
+                        if ui.button("Project Hub").clicked() {
+                            editor_ctx.screen = AppScreen::Hub;
                             ui.close();
                         }
                         ui.separator();

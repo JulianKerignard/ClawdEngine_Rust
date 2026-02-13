@@ -110,14 +110,7 @@ impl ApplicationHandler for App {
 
         editor::theme::apply_theme(&self.egui_ctx);
 
-        // Load default showcase scene
-        self.scripts = editor::default_scene::setup_default_scene(
-            &mut self.world,
-            cube_mesh_id,
-            sphere_mesh_id,
-        );
-
-        // Populate script registry
+        // Populate script registry (no default scene — Project Hub handles it)
         if let Some(ec) = &mut self.editor_ctx {
             ec.script_registry = vec![
                 ScriptRegistryEntry {
@@ -188,12 +181,7 @@ impl ApplicationHandler for App {
             ec.refresh_assets();
         }
 
-        log::info!("Window, GPU, and egui initialized");
-        log::info!(
-            "Spawned {} entities, {} with transforms",
-            self.world.entity_count(),
-            self.world.transforms_iter().count()
-        );
+        log::info!("Window, GPU, and egui initialized — showing Project Hub");
     }
 
     fn window_event(
@@ -276,70 +264,76 @@ impl App {
             ec.visible_triangles = self.last_triangles;
         }
 
-        // Editor shortcuts
-        let wants_kb = self.egui_ctx.wants_keyboard_input();
-        let right_held = self.input.is_mouse_held(MouseButton::Right);
-        let focus_requested = if let Some(ec) = &mut self.editor_ctx {
-            editor::shortcuts::handle_shortcuts(&self.input, ec, wants_kb, right_held)
-        } else {
-            false
-        };
+        // Skip editor systems when Project Hub is showing
+        let is_hub = self.editor_ctx.as_ref()
+            .map_or(false, |ec| ec.screen == editor::context::AppScreen::Hub);
 
-        // Camera controls
-        self.update_camera(dt, focus_requested);
+        if !is_hub {
+            // Editor shortcuts
+            let wants_kb = self.egui_ctx.wants_keyboard_input();
+            let right_held = self.input.is_mouse_held(MouseButton::Right);
+            let focus_requested = if let Some(ec) = &mut self.editor_ctx {
+                editor::shortcuts::handle_shortcuts(&self.input, ec, wants_kb, right_held)
+            } else {
+                false
+            };
 
-        // Gizmo interaction
-        self.update_gizmo();
+            // Camera controls
+            self.update_camera(dt, focus_requested);
 
-        // Physics step (Play mode only)
-        let is_playing = self.editor_ctx.as_ref().is_some_and(|ec| ec.play_mode);
-        if is_playing {
-            self.collision_events = physics::PhysicsSystem::step(
-                &mut self.world,
-                &mut self.collision_state,
-                dt.max(0.001),
-            );
-        }
+            // Gizmo interaction
+            self.update_gizmo();
 
-        // Audio update (Play mode)
-        if let Some(ref mut audio_sys) = self.audio {
-            audio_sys.update(&mut self.world, is_playing);
-        }
+            // Physics step (Play mode only)
+            let is_playing = self.editor_ctx.as_ref().is_some_and(|ec| ec.play_mode);
+            if is_playing {
+                self.collision_events = physics::PhysicsSystem::step(
+                    &mut self.world,
+                    &mut self.collision_state,
+                    dt.max(0.001),
+                );
+            }
 
-        // Script execution (Play mode only)
-        if is_playing {
-            let dt_clamped = dt.max(0.001);
-            let mut scripts = std::mem::take(&mut self.scripts);
-            let mut pending_destroy = Vec::new();
+            // Audio update (Play mode)
+            if let Some(ref mut audio_sys) = self.audio {
+                audio_sys.update(&mut self.world, is_playing);
+            }
 
-            if !self.scripts_started {
-                self.play_time = 0.0;
+            // Script execution (Play mode only)
+            if is_playing {
+                let dt_clamped = dt.max(0.001);
+                let mut scripts = std::mem::take(&mut self.scripts);
+                let mut pending_destroy = Vec::new();
+
+                if !self.scripts_started {
+                    self.play_time = 0.0;
+                    for (eid, script) in &mut scripts {
+                        let mut ctx = scripting::ScriptContext::new_full(
+                            *eid, &mut self.world, &[],
+                            &self.input, 0.0, dt_clamped,
+                        );
+                        script.start(&mut ctx);
+                    }
+                    self.scripts_started = true;
+                }
+
+                self.play_time += dt_clamped;
                 for (eid, script) in &mut scripts {
                     let mut ctx = scripting::ScriptContext::new_full(
-                        *eid, &mut self.world, &[],
-                        &self.input, 0.0, dt_clamped,
+                        *eid, &mut self.world, &self.collision_events,
+                        &self.input, self.play_time, dt_clamped,
                     );
-                    script.start(&mut ctx);
+                    script.update(&mut ctx, dt_clamped);
+                    pending_destroy.extend(ctx.take_pending_destroy());
                 }
-                self.scripts_started = true;
-            }
 
-            self.play_time += dt_clamped;
-            for (eid, script) in &mut scripts {
-                let mut ctx = scripting::ScriptContext::new_full(
-                    *eid, &mut self.world, &self.collision_events,
-                    &self.input, self.play_time, dt_clamped,
-                );
-                script.update(&mut ctx, dt_clamped);
-                pending_destroy.extend(ctx.take_pending_destroy());
-            }
+                self.scripts = scripts;
 
-            self.scripts = scripts;
-
-            // Apply deferred entity destruction
-            for eid in pending_destroy {
-                self.world.destroy_entity(eid);
-                self.scripts.retain(|(id, _)| *id != eid);
+                // Apply deferred entity destruction
+                for eid in pending_destroy {
+                    self.world.destroy_entity(eid);
+                    self.scripts.retain(|(id, _)| *id != eid);
+                }
             }
         }
 
@@ -557,8 +551,10 @@ impl App {
             .and_then(|ec| ec.hovered_gizmo_axis);
         let editor_ctx = &mut self.editor_ctx;
         let scripts = &mut self.scripts;
-        let show_grid = editor_ctx.as_ref().map_or(true, |ec| ec.show_grid);
-        let render_game = game_view_was_visible;
+        let is_hub = editor_ctx.as_ref()
+            .map_or(false, |ec| ec.screen == editor::context::AppScreen::Hub);
+        let show_grid = if is_hub { false } else { editor_ctx.as_ref().map_or(true, |ec| ec.show_grid) };
+        let render_game = if is_hub { false } else { game_view_was_visible };
 
         gpu.render_frame(
             &egui_ctx,
@@ -575,14 +571,21 @@ impl App {
             render_game,
             |ctx, world| {
                 if let Some(ec) = editor_ctx {
-                    editor::EditorLayout::show(
-                        ctx,
-                        Some(viewport_tex_id),
-                        game_vp_tex,
-                        world,
-                        ec,
-                        scripts,
-                    );
+                    match ec.screen {
+                        editor::context::AppScreen::Hub => {
+                            editor::project_hub::show(ctx, ec);
+                        }
+                        editor::context::AppScreen::Editor => {
+                            editor::EditorLayout::show(
+                                ctx,
+                                Some(viewport_tex_id),
+                                game_vp_tex,
+                                world,
+                                ec,
+                                scripts,
+                            );
+                        }
+                    }
                 }
             },
         )

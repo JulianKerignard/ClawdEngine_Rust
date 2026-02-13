@@ -8,6 +8,7 @@ pub mod icons;
 pub mod layout;
 mod panels;
 pub mod pending_ops;
+pub mod project_hub;
 pub mod picking;
 pub mod shortcuts;
 pub mod theme;

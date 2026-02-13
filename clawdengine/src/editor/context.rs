@@ -7,6 +7,19 @@ use crate::core::world::WorldSnapshot;
 use crate::scripting::GameScript;
 use super::icons::EditorIcons;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum AppScreen {
+    Hub,
+    Editor,
+}
+
+#[derive(Clone, Debug)]
+pub enum HubAction {
+    NewBlank,
+    NewDemo,
+    OpenScene(String),
+}
+
 #[derive(Clone, Debug)]
 pub enum AssetEntry {
     Folder(String),
@@ -256,6 +269,12 @@ pub struct EditorContext {
     pub asset_search: String,
     /// Fullscreen game mode (all editor panels hidden, game fills window)
     pub fullscreen_game: bool,
+    /// Current screen: Hub (welcome) or Editor
+    pub screen: AppScreen,
+    /// Action selected in the hub (processed next frame)
+    pub pending_hub_action: Option<HubAction>,
+    /// Cached thumbnail textures for the project hub
+    pub hub_thumbnails: std::collections::HashMap<String, egui::TextureHandle>,
 }
 
 impl EditorContext {
@@ -327,6 +346,9 @@ impl EditorContext {
             hierarchy_search: String::new(),
             asset_search: String::new(),
             fullscreen_game: false,
+            screen: AppScreen::Hub,
+            pending_hub_action: None,
+            hub_thumbnails: std::collections::HashMap::new(),
         }
     }
 
