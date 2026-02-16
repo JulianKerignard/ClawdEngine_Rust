@@ -132,4 +132,68 @@ impl<'a> EditorTabViewer<'a> {
             self.world.remove_skeletal_animator(eid);
         }
     }
+
+    pub(super) fn inspector_bone(&mut self, ui: &mut egui::Ui) {
+        let Some((eid, bone_idx)) = self.editor_ctx.selected_bone else { return };
+
+        let anim = match self.world.get_skeletal_animator(eid) {
+            Some(a) => a,
+            None => return,
+        };
+        let skel_id = match anim.skeleton_id {
+            Some(id) => id,
+            None => return,
+        };
+        let skeleton = match self.skeleton_store.get(skel_id) {
+            Some(s) => s,
+            None => return,
+        };
+        if bone_idx >= skeleton.bones.len() { return; }
+
+        let bone = &skeleton.bones[bone_idx];
+        let local_pose = anim.current_local_poses.get(bone_idx).copied();
+
+        const BONE_ACCENT: Color32 = Color32::from_rgb(0xF0, 0xC0, 0x40);
+        component_section(ui, "bone_info", "\u{1F9B4}", "Bone", BONE_ACCENT, false, |ui| {
+            property_row(ui, "Name", |ui| {
+                ui.label(egui::RichText::new(&bone.name).strong());
+            });
+
+            property_row(ui, "Index", |ui| {
+                ui.label(format!("{}", bone_idx));
+            });
+
+            property_row(ui, "Parent", |ui| {
+                let parent_name = bone.parent
+                    .and_then(|pi| skeleton.bones.get(pi))
+                    .map(|b| b.name.as_str())
+                    .unwrap_or("(root)");
+                ui.label(parent_name);
+            });
+
+            property_row(ui, "Children", |ui| {
+                ui.label(format!("{}", bone.children.len()));
+            });
+
+            if let Some(pose) = local_pose {
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new("Local Transform").color(theme::TEXT_DISABLED).size(11.0));
+
+                property_row(ui, "Position", |ui| {
+                    ui.label(format!("{:.3}, {:.3}, {:.3}", pose.position.x, pose.position.y, pose.position.z));
+                });
+
+                let (axis, angle) = pose.rotation.to_axis_angle();
+                property_row(ui, "Rotation", |ui| {
+                    ui.label(format!("{:.1}\u{00B0}", angle.to_degrees()));
+                    ui.label(egui::RichText::new(format!("({:.2}, {:.2}, {:.2})", axis.x, axis.y, axis.z))
+                        .color(theme::TEXT_DISABLED).size(10.0));
+                });
+
+                property_row(ui, "Scale", |ui| {
+                    ui.label(format!("{:.3}, {:.3}, {:.3}", pose.scale.x, pose.scale.y, pose.scale.z));
+                });
+            }
+        });
+    }
 }

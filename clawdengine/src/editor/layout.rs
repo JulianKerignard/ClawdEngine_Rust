@@ -17,6 +17,7 @@ pub struct EditorTabViewer<'a> {
     pub world: &'a mut World,
     pub editor_ctx: &'a mut EditorContext,
     pub scripts: &'a mut Vec<(EntityId, Box<dyn GameScript>)>,
+    pub skeleton_store: &'a crate::core::SkeletonStore,
 }
 
 impl<'a> TabViewer for EditorTabViewer<'a> {
@@ -344,6 +345,8 @@ pub fn entity_icon(world: &World, id: EntityId) -> (&'static str, Color32) {
         ("\u{1F5B5}", Color32::from_rgb(0xCB, 0xA6, 0xF7)) // mauve UI icon
     } else if world.get_audio_source(id).is_some() {
         ("\u{1F50A}", Color32::from_rgb(0xF9, 0xE2, 0xAF)) // yellow speaker
+    } else if world.get_skeletal_animator(id).is_some() {
+        ("\u{1F9B4}", Color32::from_rgb(0xF0, 0xC0, 0x40)) // bone emoji, gold — skinned mesh
     } else if world.get_mesh_renderer(id).is_some() {
         ("\u{25A0}", Color32::from_rgb(0x4B, 0x8B, 0xBE)) // blue square
     } else {
@@ -363,6 +366,7 @@ impl EditorLayout {
         world: &mut World,
         editor_ctx: &mut EditorContext,
         scripts: &mut Vec<(EntityId, Box<dyn GameScript>)>,
+        scene: &crate::renderer::SceneRenderer,
     ) {
         // Fullscreen game mode: skip all editor UI
         if editor_ctx.fullscreen_game {
@@ -385,6 +389,7 @@ impl EditorLayout {
             world,
             editor_ctx,
             scripts,
+            skeleton_store: &scene.skeleton_store,
         };
 
         DockArea::new(&mut dock_state)

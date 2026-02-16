@@ -1,8 +1,21 @@
-use crate::core::World;
+use crate::core::{EntityId, World};
 use crate::renderer::SceneRenderer;
 
 use super::context::{EditorContext, EditorTool, GizmoAxis, GizmoDragState};
 use super::picking;
+
+/// Walk up parent chain: if parent has no mesh (group entity), select it instead.
+fn resolve_root_parent(eid: EntityId, world: &World) -> EntityId {
+    let mut current = eid;
+    while let Some(parent) = world.get_parent(current) {
+        if world.get_mesh_renderer(parent).is_none() {
+            current = parent;
+        } else {
+            break;
+        }
+    }
+    current
+}
 
 /// Collect initial positions for all selected entities.
 fn collect_positions(editor_ctx: &EditorContext, world: &World) -> Vec<(crate::core::EntityId, glam::Vec3)> {
@@ -90,7 +103,9 @@ pub fn handle_gizmo_press(
         let picked = picking::pick_entity(
             &scene.camera, vp_width, vp_height, mx, my, world, &scene.mesh_store,
         );
-        match picked {
+        // If picked entity has a group parent (no mesh), select the root instead
+        let resolved = picked.map(|eid| resolve_root_parent(eid, world));
+        match resolved {
             Some(eid) if shift_held => editor_ctx.toggle_select(eid),
             Some(eid) => editor_ctx.select(eid),
             None => editor_ctx.deselect_all(),

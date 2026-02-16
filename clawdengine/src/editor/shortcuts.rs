@@ -76,7 +76,8 @@ pub fn handle_shortcuts(
     }
 
     // Cmd+Z → undo, Cmd+Shift+Z → redo (logical key for AZERTY support)
-    if cmd_held && input.is_char_pressed('z') {
+    // Block undo/redo during gizmo drag to prevent state corruption
+    if cmd_held && input.is_char_pressed('z') && editor_ctx.gizmo_drag.is_none() {
         if shift_held {
             editor_ctx.pending_redo = true;
         } else {

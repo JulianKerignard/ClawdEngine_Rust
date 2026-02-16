@@ -12,6 +12,8 @@ pub(crate) fn process_undo(world: &mut World, ec: &mut EditorContext) {
         ec.undo_stack.push_redo(world.snapshot(), ec.selected_entities.clone());
         world.restore(entry.snapshot);
         ec.selected_entities = entry.selected;
+        // Filter out dead entities after restore
+        ec.selected_entities.retain(|&id| world.is_alive(id));
     }
 }
 
@@ -24,6 +26,8 @@ pub(crate) fn process_redo(world: &mut World, ec: &mut EditorContext) {
         ec.undo_stack.push_undo_only(world.snapshot(), ec.selected_entities.clone());
         world.restore(entry.snapshot);
         ec.selected_entities = entry.selected;
+        // Filter out dead entities after restore
+        ec.selected_entities.retain(|&id| world.is_alive(id));
     }
 }
 

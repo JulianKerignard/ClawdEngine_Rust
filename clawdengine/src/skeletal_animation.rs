@@ -274,6 +274,9 @@ pub fn skeletal_animation_system(
                             .collect();
                         let joint_mats = compute_joint_matrices(skeleton, &local_poses);
                         results.push((eid, joint_matrices_to_uniform(&joint_mats)));
+                        if let Some(anim) = world.get_skeletal_animator_mut(eid) {
+                            anim.current_local_poses = local_poses;
+                        }
                     }
                     continue;
                 }
@@ -309,15 +312,15 @@ pub fn skeletal_animation_system(
         if playing && duration > 0.0 {
             new_time += dt * speed;
             if new_time > duration {
-                if looping {
-                    new_time %= duration;
+                if looping && duration > 0.0 {
+                    new_time = new_time.rem_euclid(duration);
                 } else {
                     new_time = duration;
                 }
             }
             if new_time < 0.0 {
-                new_time = if looping {
-                    duration + (new_time % duration)
+                new_time = if looping && duration > 0.0 {
+                    new_time.rem_euclid(duration)
                 } else {
                     0.0
                 };
@@ -330,6 +333,7 @@ pub fn skeletal_animation_system(
 
         if let Some(anim) = world.get_skeletal_animator_mut(eid) {
             anim.current_time = new_time;
+            anim.current_local_poses = local_poses;
             if playing && new_time >= duration && !looping {
                 anim.playing = false;
             }

@@ -176,8 +176,9 @@ fn find_listener(world: &World) -> Option<(Vec3, f32)> {
 }
 
 fn distance_attenuation(dist: f32, max_dist: f32) -> f32 {
-    if max_dist <= 0.0 { return 1.0; }
+    if max_dist <= 0.0 || !dist.is_finite() { return 1.0; }
+    let dist = dist.max(0.0);
     let ratio = (dist / max_dist).min(1.0);
     let falloff = (1.0 - ratio.powi(4)).powi(2) / (dist * dist + 1.0);
-    falloff.max(0.0)
+    falloff.clamp(0.0, 1.0)
 }

@@ -7,6 +7,7 @@ use super::skeleton::SkeletalAnimator;
 
 #[derive(Clone)]
 pub struct WorldSnapshot {
+    generations: Vec<u32>,
     alive: Vec<bool>,
     names: Vec<String>,
     transforms: Vec<Option<Transform>>,
@@ -274,8 +275,12 @@ impl World {
 
     pub fn is_ancestor(&self, ancestor: EntityId, id: EntityId) -> bool {
         let mut current = self.get_parent(id);
+        let max_depth = self.alive.len();
+        let mut depth = 0;
         while let Some(pid) = current {
             if pid == ancestor { return true; }
+            depth += 1;
+            if depth > max_depth { return false; }
             current = self.get_parent(pid);
         }
         false
@@ -621,6 +626,7 @@ impl World {
 
     pub fn snapshot(&self) -> WorldSnapshot {
         WorldSnapshot {
+            generations: self.generations.clone(),
             alive: self.alive.clone(),
             names: self.names.clone(),
             transforms: self.transforms.clone(),
@@ -642,6 +648,7 @@ impl World {
     }
 
     pub fn restore(&mut self, snap: WorldSnapshot) {
+        self.generations = snap.generations;
         self.alive = snap.alive;
         self.names = snap.names;
         self.transforms = snap.transforms;

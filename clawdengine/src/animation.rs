@@ -20,20 +20,22 @@ pub fn animation_system(world: &mut World, dt: f32) {
             )
         };
 
-        let max_t = kfs.last().unwrap().time;
-        if max_t <= 0.0 {
-            continue;
-        }
+        let max_t = match kfs.last() {
+            Some(kf) if kf.time > 0.0 => kf.time,
+            _ => continue,
+        };
 
         let mut new_time = time + dt * speed;
         let mut still_playing = true;
         if new_time > max_t {
-            if looping {
-                new_time %= max_t;
+            if looping && max_t > 0.0 {
+                new_time = new_time.rem_euclid(max_t);
             } else {
                 new_time = max_t;
                 still_playing = false;
             }
+        } else if new_time < 0.0 && looping && max_t > 0.0 {
+            new_time = new_time.rem_euclid(max_t);
         }
 
         let (prev, next) = find_surrounding(&kfs, new_time);

@@ -191,6 +191,9 @@ pub struct SkeletalAnimator {
     /// Current playback time in seconds.
     #[serde(skip)]
     pub current_time: f32,
+    /// Current local poses per bone (updated each frame by animation system).
+    #[serde(skip)]
+    pub current_local_poses: Vec<Transform>,
 }
 
 impl Default for SkeletalAnimator {
@@ -206,6 +209,7 @@ impl Default for SkeletalAnimator {
             loop_animation: true,
             speed: 1.0,
             current_time: 0.0,
+            current_local_poses: Vec::new(),
         }
     }
 }

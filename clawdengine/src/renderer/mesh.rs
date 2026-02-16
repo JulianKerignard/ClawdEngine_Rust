@@ -538,6 +538,7 @@ pub fn compute_tangents(vertices: &mut [Vertex], indices: &[u32]) {
     for tri in indices.chunks(3) {
         if tri.len() < 3 { break; }
         let (i0, i1, i2) = (tri[0] as usize, tri[1] as usize, tri[2] as usize);
+        if i0 >= vc || i1 >= vc || i2 >= vc { continue; }
         let p0 = Vec3::from(vertices[i0].position);
         let p1 = Vec3::from(vertices[i1].position);
         let p2 = Vec3::from(vertices[i2].position);

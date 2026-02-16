@@ -209,7 +209,11 @@ fn collect_descendants(world: &World, id: EntityId, out: &mut Vec<EntityId>) {
     }
 }
 
-pub(crate) fn process_delete(world: &mut World, ec: &mut EditorContext) {
+pub(crate) fn process_delete(
+    world: &mut World,
+    ec: &mut EditorContext,
+    scripts: &mut Vec<(EntityId, Box<dyn GameScript>)>,
+) {
     if ec.pending_delete.is_empty() {
         return;
     }
@@ -222,6 +226,8 @@ pub(crate) fn process_delete(world: &mut World, ec: &mut EditorContext) {
         collect_descendants(world, *id, &mut all);
     }
     all.reverse();
+    // Remove scripts attached to deleted entities
+    scripts.retain(|(id, _)| !all.contains(id));
     for id in all {
         world.destroy_entity(id);
     }

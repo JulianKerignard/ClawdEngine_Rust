@@ -266,7 +266,12 @@ impl<'a> EditorTabViewer<'a> {
         let name = self.world.get_name(entity_id).unwrap_or("Entity");
         let (icon, icon_color) = entity_icon(self.world, entity_id);
         let is_selected = self.editor_ctx.is_selected(entity_id);
-        let has_children = !self.world.get_children(entity_id).is_empty();
+        let has_entity_children = !self.world.get_children(entity_id).is_empty();
+        let has_skeleton = self.world.get_skeletal_animator(entity_id)
+            .and_then(|a| a.skeleton_id)
+            .and_then(|sid| self.skeleton_store.get(sid))
+            .is_some();
+        let has_children = has_entity_children || has_skeleton;
         let is_expanded = self.editor_ctx.hierarchy_expanded.contains(&entity_id);
 
         let indent = depth as f32 * 16.0;
@@ -417,10 +422,116 @@ impl<'a> EditorTabViewer<'a> {
         });
 
         // Recursion for children (if expanded)
+        if is_expanded {
+            if has_entity_children {
+                let child_ids: Vec<EntityId> = self.world.get_children(entity_id).to_vec();
+                for child_id in child_ids {
+                    self.show_entity_node(ui, child_id, depth + 1);
+                }
+            }
+            // Show skeleton bone hierarchy (virtual nodes)
+            if has_skeleton {
+                let skel_id = self.world.get_skeletal_animator(entity_id)
+                    .and_then(|a| a.skeleton_id);
+                if let Some(sid) = skel_id {
+                    if let Some(skeleton) = self.skeleton_store.get(sid) {
+                        let root_bone = skeleton.root_bone;
+                        let bones = skeleton.bones.clone();
+                        self.show_bone_node(ui, entity_id, root_bone, &bones, depth + 1);
+                    }
+                }
+            }
+        }
+    }
+
+    fn show_bone_node(
+        &mut self,
+        ui: &mut egui::Ui,
+        entity_id: EntityId,
+        bone_index: usize,
+        bones: &[crate::core::Bone],
+        depth: u32,
+    ) {
+        let bone = &bones[bone_index];
+        let has_children = !bone.children.is_empty();
+        let key = (entity_id, bone_index);
+        let is_expanded = self.editor_ctx.bone_expanded.contains(&key);
+        let is_selected = self.editor_ctx.selected_bone == Some(key);
+
+        let indent = depth as f32 * 16.0;
+        let (rect, response) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), 22.0),
+            egui::Sense::click(),
+        );
+
+        // Selection highlight
+        if is_selected {
+            ui.painter().rect_filled(
+                rect, 4.0,
+                Color32::from_rgba_premultiplied(0xF0, 0xC0, 0x40, 30),
+            );
+            let bar = egui::Rect::from_min_size(
+                rect.left_top(), egui::vec2(3.0, rect.height()),
+            );
+            ui.painter().rect_filled(bar, 2.0, Color32::from_rgb(0xF0, 0xC0, 0x40));
+        } else if response.hovered() {
+            ui.painter().rect_filled(rect, 4.0, Color32::from_white_alpha(10));
+        }
+
+        let center_y = rect.center().y;
+        let arrow_x = rect.left() + indent + 4.0;
+
+        // Expand/collapse arrow
+        if has_children {
+            let arrow = if is_expanded { "\u{25BC}" } else { "\u{25B6}" };
+            ui.painter().text(
+                egui::pos2(arrow_x, center_y),
+                egui::Align2::LEFT_CENTER,
+                arrow,
+                egui::FontId::proportional(9.0),
+                theme::TEXT_DISABLED,
+            );
+        }
+
+        // Bone icon + name
+        let text_x = rect.left() + indent + 20.0;
+        ui.painter().text(
+            egui::pos2(text_x, center_y),
+            egui::Align2::LEFT_CENTER,
+            "\u{1F9B4}",
+            egui::FontId::proportional(11.0),
+            Color32::from_rgb(0xD0, 0xA0, 0x30),
+        );
+        let name_color = if is_selected { theme::TEXT_PRIMARY } else { theme::TEXT_DISABLED };
+        ui.painter().text(
+            egui::pos2(text_x + 18.0, center_y),
+            egui::Align2::LEFT_CENTER,
+            &bone.name,
+            egui::FontId::proportional(11.0),
+            name_color,
+        );
+
+        // Click handling
+        if response.clicked() {
+            let click_x = response.interact_pointer_pos().map(|p| p.x).unwrap_or(0.0);
+            if has_children && click_x < arrow_x + 16.0 {
+                if is_expanded {
+                    self.editor_ctx.bone_expanded.remove(&key);
+                } else {
+                    self.editor_ctx.bone_expanded.insert(key);
+                }
+            } else {
+                self.editor_ctx.selected_bone = Some(key);
+            }
+        }
+
+        // Children recursion
         if has_children && is_expanded {
-            let child_ids: Vec<EntityId> = self.world.get_children(entity_id).to_vec();
-            for child_id in child_ids {
-                self.show_entity_node(ui, child_id, depth + 1);
+            let children = bone.children.clone();
+            for &child_idx in &children {
+                if child_idx < bones.len() {
+                    self.show_bone_node(ui, entity_id, child_idx, bones, depth + 1);
+                }
             }
         }
     }

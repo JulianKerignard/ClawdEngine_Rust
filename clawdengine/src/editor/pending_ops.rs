@@ -23,7 +23,7 @@ pub fn process_pending_operations(
     component_ops::process_redo(world, editor_ctx);
     entity_ops::process_spawn(world, editor_ctx);
     entity_ops::process_reparent(world, editor_ctx);
-    entity_ops::process_delete(world, editor_ctx);
+    entity_ops::process_delete(world, editor_ctx, scripts);
     entity_ops::process_duplicate(world, editor_ctx, scripts);
     component_ops::process_remove_scripts(editor_ctx, scripts);
     component_ops::process_add_script(editor_ctx, scripts);

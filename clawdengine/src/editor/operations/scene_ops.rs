@@ -117,6 +117,7 @@ pub(crate) fn process_load_scene(
                 }
             }
             ec.deselect_all();
+            ec.undo_stack = crate::editor::context::UndoStack::new();
             ec.save_feedback = Some(("Scene loaded!".into(), 2.0));
             ec.scene_name = scene_name;
             log::info!("Loaded scene: {}", path);

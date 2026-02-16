@@ -241,7 +241,7 @@ pub fn load_scene(
     // Phase 2: Restore hierarchy
     for (i, edata) in scene.entities.iter().enumerate() {
         if let Some(parent_idx) = edata.parent_index {
-            if parent_idx < new_ids.len() {
+            if parent_idx < new_ids.len() && parent_idx != i {
                 world.set_parent(new_ids[i], new_ids[parent_idx]);
             }
         }
@@ -281,7 +281,11 @@ fn resolve_mesh(mesh_store: &mut MeshStore, device: &wgpu::Device, name: &str) -
         return None;
     }
 
-    // Try loading OBJ if it's a file path
+    // Try loading OBJ if it's a safe file path
+    if name.contains("..") {
+        log::error!("Rejected unsafe mesh path: {}", name);
+        return None;
+    }
     if name.starts_with("assets/") || name.contains('/') {
         match super::obj_loader::load_obj(name) {
             Ok(loaded) => {

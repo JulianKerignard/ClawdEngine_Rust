@@ -233,7 +233,7 @@ impl App {
             show_grid,
             render_game,
             &settings,
-            |ctx, world, _scene_ref| {
+            |ctx, world, scene_ref| {
                 if let Some(ec) = editor_ctx {
                     match ec.screen {
                         editor::context::AppScreen::Hub => {
@@ -247,6 +247,7 @@ impl App {
                                 world,
                                 ec,
                                 scripts,
+                                scene_ref,
                             );
                         }
                     }

@@ -16,9 +16,10 @@ impl App {
             scene.camera.far = cam.far_clip;
         }
 
-        // Only allow camera controls when mouse is inside the viewport and egui doesn't want pointer
-        let egui_wants_pointer = self.egui_ctx.wants_pointer_input();
-        let mouse_in_viewport = if egui_wants_pointer {
+        // Only allow camera controls when mouse is inside the viewport
+        // Use is_using_pointer() (active drag on egui widget) instead of wants_pointer_input()
+        // which blocks ALL interaction when pointer is over the dock area
+        let mouse_in_viewport = if self.egui_ctx.is_using_pointer() {
             false
         } else if let (Some(ec), Some(window)) = (&self.editor_ctx, &self.window) {
             let scale = window.scale_factor() as f32;
@@ -77,10 +78,20 @@ impl App {
         if focus_requested {
             if let Some(editor_ctx) = &self.editor_ctx {
                 if let Some(eid) = editor_ctx.primary_selection() {
-                    if let Some(transform) = self.world.get_transform(eid) {
-                        scene.camera.focus_on(transform.position);
+                    let pos = self.world.get_world_transform(eid)
+                        .or_else(|| self.world.get_transform(eid).copied())
+                        .map(|t| t.position);
+                    if let Some(p) = pos {
+                        scene.camera.focus_on(p);
                     }
                 }
+            }
+        }
+
+        // Auto-focus after model import
+        if let Some(ec) = &mut self.editor_ctx {
+            if let Some(target) = ec.pending_camera_focus.take() {
+                scene.camera.focus_on(target);
             }
         }
     }
@@ -92,8 +103,8 @@ impl App {
             return;
         };
 
-        // Don't interact with gizmo when egui has pointer (menus, popups)
-        if self.egui_ctx.wants_pointer_input() {
+        // Don't interact with gizmo when egui is actively dragging a widget
+        if self.egui_ctx.is_using_pointer() {
             editor::gizmo_interaction::handle_gizmo_release(editor_ctx);
             return;
         }

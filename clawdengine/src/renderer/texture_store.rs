@@ -99,6 +99,11 @@ impl TextureStore {
         for (level, mip_data) in mip_levels.iter().enumerate() {
             let mip_w = (width >> level).max(1);
             let mip_h = (height >> level).max(1);
+            let expected = (4 * mip_w * mip_h) as usize;
+            if mip_data.len() != expected {
+                log::error!("Mip level {} size mismatch: expected {}, got {}", level, expected, mip_data.len());
+                break;
+            }
             queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture: &texture,

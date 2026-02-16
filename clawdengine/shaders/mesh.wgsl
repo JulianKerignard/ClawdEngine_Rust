@@ -84,9 +84,11 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         out.world_tangent = T;
         out.world_bitangent = cross(N_raw, T) * in.tangent.w;
     } else {
-        // Fallback: generate arbitrary tangent frame
-        out.world_tangent = vec3<f32>(0.0, 0.0, 0.0);
-        out.world_bitangent = vec3<f32>(0.0, 0.0, 0.0);
+        // Fallback: generate arbitrary tangent perpendicular to normal
+        let arb = select(vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 0.0, 0.0), abs(N_raw.y) > 0.9);
+        let T_fb = normalize(cross(N_raw, arb));
+        out.world_tangent = T_fb;
+        out.world_bitangent = cross(N_raw, T_fb);
     }
     return out;
 }
@@ -101,8 +103,8 @@ fn calc_shadow(shadow_pos: vec4<f32>) -> f32 {
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || proj.z > 1.0) {
         return 1.0;
     }
-    // 16-tap PCF (4x4 grid)
-    let texel_size = 1.0 / 2048.0;
+    // 16-tap PCF (4x4 grid) — matches SHADOW_MAP_SIZE in shadow.rs
+    let texel_size = 1.0 / f32(2048);
     var shadow = 0.0;
     for (var x = -2i; x <= 1i; x++) {
         for (var y = -2i; y <= 1i; y++) {
@@ -188,10 +190,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let shininess = mix(16.0, 128.0, 1.0 - material.roughness);
         let NdotH = max(dot(N, H), 0.0);
         let spec_strength = pow(NdotH, shininess);
-        let fresnel = mix(vec3<f32>(0.04, 0.04, 0.04), base_color, material.metallic);
+        let F0 = mix(vec3<f32>(0.04, 0.04, 0.04), base_color, material.metallic);
+        let VdotH = max(dot(V, H), 0.0);
+        let fresnel = F0 + (vec3<f32>(1.0) - F0) * pow(1.0 - VdotH, 5.0);
         let specular = light.color.rgb * intensity * spec_strength * attenuation * shadow * fresnel;
 
-        result += base_color * diffuse + specular;
+        // Energy conservation: metals have no diffuse
+        let diffuse_contrib = base_color * diffuse * (1.0 - material.metallic);
+        result += diffuse_contrib + specular;
     }
 
     // Emission
@@ -201,6 +207,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (model.color.a > 0.5) {
         result = mix(result, model.color.rgb, 0.3);
     }
+
+    // ACES tone mapping (HDR → LDR)
+    let a = 2.51;
+    let b = 0.03;
+    let c = 2.43;
+    let d = 0.59;
+    let e = 0.14;
+    result = clamp((result * (a * result + b)) / (result * (c * result + d) + e), vec3<f32>(0.0), vec3<f32>(1.0));
 
     return vec4<f32>(result, material.albedo.a);
 }

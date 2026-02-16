@@ -310,6 +310,12 @@ pub struct EditorContext {
     pub pending_build_game: bool,
     pub project_settings: crate::assets::settings::ProjectSettings,
     pub settings_dirty: bool,
+    /// Selected bone: (entity with SkeletalAnimator, bone index in Skeleton)
+    pub selected_bone: Option<(EntityId, usize)>,
+    /// Expanded bones in hierarchy: (entity_id, bone_index)
+    pub bone_expanded: std::collections::HashSet<(EntityId, usize)>,
+    /// Pending camera focus target (auto-focus after import)
+    pub pending_camera_focus: Option<glam::Vec3>,
 }
 
 impl EditorContext {
@@ -403,6 +409,9 @@ impl EditorContext {
             pending_build_game: false,
             project_settings: crate::assets::settings::ProjectSettings::default(),
             settings_dirty: false,
+            selected_bone: None,
+            bone_expanded: std::collections::HashSet::new(),
+            pending_camera_focus: None,
         }
     }
 
@@ -432,6 +441,7 @@ impl EditorContext {
 
     pub fn select(&mut self, id: EntityId) {
         self.selected_entities = vec![id];
+        self.selected_bone = None;
     }
 
     pub fn toggle_select(&mut self, id: EntityId) {

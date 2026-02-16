@@ -34,6 +34,13 @@ impl<'a> EditorTabViewer<'a> {
         ui.separator();
 
         if self.editor_ctx.selected_entities.is_empty() {
+            // Show bone inspector if a bone is selected
+            if self.editor_ctx.selected_bone.is_some() {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    self.inspector_bone(ui);
+                });
+                return;
+            }
             ui.vertical_centered(|ui| {
                 ui.add_space(40.0);
                 ui.label(
@@ -297,6 +304,7 @@ impl<'a> EditorTabViewer<'a> {
         self.inspector_ui_element(ui, eid);
         self.inspector_animator(ui, eid);
         self.inspector_skeletal_animator(ui, eid);
+        self.inspector_bone(ui);
         self.inspector_scripts(ui, eid);
         self.inspector_add_component(ui, eid);
 

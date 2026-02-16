@@ -186,9 +186,9 @@ impl ShadowMap {
                 depth_compare: wgpu::CompareFunction::Less,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState {
-                    constant: 2,
-                    slope_scale: 2.0,
-                    clamp: 0.0,
+                    constant: 4000,
+                    slope_scale: 4.0,
+                    clamp: 0.01,
                 },
             }),
             multisample: wgpu::MultisampleState::default(),

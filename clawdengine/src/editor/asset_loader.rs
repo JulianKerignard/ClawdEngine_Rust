@@ -184,6 +184,8 @@ fn create_entities_from_prepared(
     tex_ids: &[usize],
     drop_pos: glam::Vec3,
 ) {
+    let mut drop_pos = drop_pos;
+
     ec.undo_stack
         .push(world.snapshot(), ec.selected_entities.clone());
 
@@ -217,7 +219,30 @@ fn create_entities_from_prepared(
         .map(|c| c.name.clone())
         .collect();
 
-    let mut first_id = None;
+    let total_meshes = prepared.meshes.len() + prepared.skinned_meshes.len();
+
+    // If multiple meshes, create a root parent entity so they move together
+    let root_id = if total_meshes > 1 {
+        let root = world.spawn_entity();
+        let asset_name = std::path::Path::new(&prepared.asset_path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Model");
+        world.set_name(root, asset_name);
+        world.set_transform(
+            root,
+            core::Transform {
+                position: drop_pos,
+                rotation: glam::Quat::IDENTITY,
+                scale: glam::Vec3::ONE,
+            },
+        );
+        Some(root)
+    } else {
+        None
+    };
+
+    let mut first_id = root_id;
 
     // Normal meshes
     for gltf_mesh in &prepared.meshes {
@@ -236,14 +261,20 @@ fn create_entities_from_prepared(
         world.set_name(id, &gltf_mesh.display_name);
 
         let (scale, rotation, translation) = gltf_mesh.transform.to_scale_rotation_translation();
-        world.set_transform(
-            id,
-            core::Transform {
-                position: translation + drop_pos,
-                rotation,
-                scale,
-            },
-        );
+        if root_id.is_some() {
+            // Child: local transform relative to root (root is at drop_pos)
+            world.set_transform(
+                id,
+                core::Transform { position: translation, rotation, scale },
+            );
+            world.set_parent(id, root_id.unwrap());
+        } else {
+            // Single mesh: absolute position
+            world.set_transform(
+                id,
+                core::Transform { position: translation + drop_pos, rotation, scale },
+            );
+        }
 
         let mat = build_material(&gltf_mesh.material, &prepared.textures, tex_ids);
         world.set_material(id, mat);
@@ -278,14 +309,20 @@ fn create_entities_from_prepared(
         world.set_name(id, &sm.display_name);
 
         let (scale, rotation, translation) = sm.transform.to_scale_rotation_translation();
-        world.set_transform(
-            id,
-            core::Transform {
-                position: translation + drop_pos,
-                rotation,
-                scale,
-            },
-        );
+        if root_id.is_some() {
+            // Child: local transform relative to root
+            world.set_transform(
+                id,
+                core::Transform { position: translation, rotation, scale },
+            );
+            world.set_parent(id, root_id.unwrap());
+        } else {
+            // Single mesh: absolute position
+            world.set_transform(
+                id,
+                core::Transform { position: translation + drop_pos, rotation, scale },
+            );
+        }
 
         let mat = build_material(&sm.material, &prepared.textures, tex_ids);
         world.set_material(id, mat);
@@ -319,11 +356,53 @@ fn create_entities_from_prepared(
         }
     }
 
+    // Compute overall min Y from all imported meshes to offset above ground
+    let mut global_min_y = f32::MAX;
+    for gltf_mesh in &prepared.meshes {
+        if let Some(mesh_id) = scene.mesh_store.find_by_name(&gltf_mesh.store_name) {
+            if let Some(aabb) = scene.mesh_store.get_aabb(mesh_id) {
+                let (scale, rot, trans) = gltf_mesh.transform.to_scale_rotation_translation();
+                let model = glam::Mat4::from_scale_rotation_translation(scale, rot, trans);
+                let (world_min, _) = aabb.transformed(model);
+                global_min_y = global_min_y.min(world_min.y);
+            }
+        }
+    }
+    for sm in &prepared.skinned_meshes {
+        if let Some(mesh_id) = scene.mesh_store.find_by_name(&sm.store_name) {
+            if let Some(aabb) = scene.mesh_store.get_aabb(mesh_id) {
+                let (scale, rot, trans) = sm.transform.to_scale_rotation_translation();
+                let model = glam::Mat4::from_scale_rotation_translation(scale, rot, trans);
+                let (world_min, _) = aabb.transformed(model);
+                global_min_y = global_min_y.min(world_min.y);
+            }
+        }
+    }
+
+    // If the lowest point is below ground, push everything up
+    if global_min_y < -0.001 && global_min_y != f32::MAX {
+        let y_offset = -global_min_y;
+        if let Some(root) = root_id {
+            if let Some(t) = world.get_transform_mut(root) {
+                t.position.y += y_offset;
+            }
+        } else if let Some(id) = first_id {
+            if let Some(t) = world.get_transform_mut(id) {
+                t.position.y += y_offset;
+            }
+        }
+        drop_pos.y += y_offset;
+    }
+
     if let Some(id) = first_id {
         ec.select(id);
+        // Auto-expand in hierarchy
+        ec.hierarchy_expanded.insert(id);
+        // Auto-focus camera on the imported model
+        ec.pending_camera_focus = Some(drop_pos + glam::Vec3::new(0.0, 0.8, 0.0));
     }
     log::info!(
-        "Loaded glTF asset: {} ({} meshes, {} skinned, {} skeletons, {} animations)",
+        "Loaded asset: {} ({} meshes, {} skinned, {} skeletons, {} animations)",
         prepared.asset_path,
         prepared.meshes.len(),
         prepared.skinned_meshes.len(),

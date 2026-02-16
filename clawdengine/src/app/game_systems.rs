@@ -17,7 +17,7 @@ impl App {
             self.collision_events = physics::PhysicsSystem::step(
                 &mut self.world,
                 &mut self.collision_state,
-                dt.max(0.001),
+                dt.clamp(0.001, 0.02),
                 gravity,
                 ground_y,
             );
@@ -85,7 +85,9 @@ impl App {
 
         // Apply deferred entity destruction
         for eid in pending_destroy {
-            self.world.destroy_entity(eid);
+            if self.world.is_alive(eid) {
+                self.world.destroy_entity(eid);
+            }
             self.scripts.retain(|(id, _)| *id != eid);
         }
     }

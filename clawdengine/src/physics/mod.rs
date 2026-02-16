@@ -43,18 +43,18 @@ impl PhysicsSystem {
     ) -> Vec<CollisionEvent> {
         let entities: Vec<EntityId> = world.iter_entities().collect();
 
-        // 1. Gravity + integrate (entities with RigidBody)
+        // 1. Gravity + integrate (semi-implicit Euler: update velocity first, then position)
         for &eid in &entities {
             let Some(rb) = world.get_rigid_body(eid) else { continue; };
             let mut velocity = rb.velocity;
             if rb.gravity_enabled {
                 velocity.y -= gravity * dt;
             }
-            if let Some(t) = world.get_transform_mut(eid) {
-                t.position += velocity * dt;
-            }
             if let Some(rb) = world.get_rigid_body_mut(eid) {
                 rb.velocity = velocity;
+            }
+            if let Some(t) = world.get_transform_mut(eid) {
+                t.position += velocity * dt;
             }
         }
 
@@ -244,18 +244,21 @@ impl PhysicsSystem {
             }
         }
 
-        // 5. Ground plane collision (for entities with RigidBody)
+        // 5. Ground plane collision (for entities with RigidBody + Collider)
         for &eid in &entities {
             let Some(_rb) = world.get_rigid_body(eid) else { continue; };
+            let Some(collider) = world.get_collider(eid).copied() else { continue; };
+            if collider.is_trigger { continue; }
             let Some(t) = world.get_transform(eid) else { continue; };
-            if t.position.y <= ground_y {
-                let restitution = world.get_collider(eid)
-                    .map(|c| c.restitution).unwrap_or(0.0);
+            let wt = world.get_world_transform(eid).unwrap_or(*t);
+            let (world_min, _) = collider.world_aabb(wt.position, wt.rotation, wt.scale);
+            let penetration = ground_y - world_min.y;
+            if penetration > 0.0 {
+                let restitution = collider.restitution;
                 if let Some(t) = world.get_transform_mut(eid) {
-                    t.position.y = ground_y;
+                    t.position.y += penetration;
                 }
-                let friction = world.get_collider(eid)
-                    .map(|c| c.friction).unwrap_or(0.5);
+                let friction = collider.friction;
                 if let Some(rb) = world.get_rigid_body_mut(eid) {
                     if rb.velocity.y < 0.0 {
                         rb.velocity.y = -rb.velocity.y * restitution;
