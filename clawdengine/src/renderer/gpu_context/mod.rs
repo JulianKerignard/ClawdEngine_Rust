@@ -14,6 +14,17 @@ pub struct GpuContext {
     pub egui_renderer: egui_wgpu::Renderer,
 }
 
+pub struct CachedEntityGpu {
+    pub model_buffer: wgpu::Buffer,
+    pub model_bg: wgpu::BindGroup,
+    pub mat_buffer: wgpu::Buffer,
+    pub mat_bg: wgpu::BindGroup,
+    pub joint_buffer: Option<wgpu::Buffer>,
+    pub joint_bg: Option<wgpu::BindGroup>,
+    pub last_texture_id: Option<usize>,
+    pub last_normal_map_id: Option<usize>,
+}
+
 pub struct SceneRenderer {
     pub pipeline: crate::renderer::pipeline::MeshPipeline,
     pub line_pipeline: crate::renderer::line_pipeline::LinePipeline,
@@ -36,4 +47,5 @@ pub struct SceneRenderer {
     pub game_viewport: Option<crate::renderer::viewport::ViewportTexture>,
     pub game_camera_buffer: wgpu::Buffer,
     pub game_camera_bind_group: wgpu::BindGroup,
+    pub entity_gpu_cache: std::collections::HashMap<EntityId, CachedEntityGpu>,
 }

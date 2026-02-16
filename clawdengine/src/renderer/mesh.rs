@@ -110,11 +110,6 @@ impl MeshStore {
         id
     }
 
-    #[allow(dead_code)]
-    pub fn add(&mut self, device: &wgpu::Device, vertices: &[Vertex], indices: &[u32]) -> usize {
-        self.add_named(device, vertices, indices, "")
-    }
-
     /// Upload a skinned mesh (SkinnedVertex layout) and register it by name.
     pub fn add_skinned_named(
         &mut self,

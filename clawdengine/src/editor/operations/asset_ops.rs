@@ -4,6 +4,16 @@ use crate::editor::context::{EditorContext, ScriptRegistryEntry};
 use crate::renderer::{GpuContext, SceneRenderer};
 use crate::scripting;
 
+fn is_valid_asset_name(name: &str) -> bool {
+    if name.is_empty() || name.len() > 255 {
+        return false;
+    }
+    if name.contains("..") || name.starts_with('.') {
+        return false;
+    }
+    name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == ' ' || c == '.')
+}
+
 fn compute_drop_position(
     ec: &mut EditorContext,
     camera: &crate::renderer::Camera,
@@ -132,6 +142,10 @@ pub(crate) fn process_create_folder(ec: &mut EditorContext) {
     let Some(folder_name) = ec.pending_create_folder.take() else {
         return;
     };
+    if !is_valid_asset_name(&folder_name) {
+        log::error!("Invalid folder name: '{}'", folder_name);
+        return;
+    }
     let folder_path = ec.asset_current_dir.join(&folder_name);
     if let Err(e) = std::fs::create_dir_all(&folder_path) {
         log::error!(
@@ -149,6 +163,11 @@ pub(crate) fn process_create_script(ec: &mut EditorContext) {
     let Some(script_name) = ec.pending_create_script.take() else {
         return;
     };
+    let base_name = script_name.trim_end_matches(".rs");
+    if !is_valid_asset_name(base_name) {
+        log::error!("Invalid script name: '{}'", script_name);
+        return;
+    }
     let filename = if script_name.ends_with(".rs") {
         script_name
     } else {

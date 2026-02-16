@@ -133,6 +133,7 @@ impl SceneRenderer {
             game_viewport: None,
             game_camera_buffer,
             game_camera_bind_group,
+            entity_gpu_cache: std::collections::HashMap::new(),
         }
     }
 

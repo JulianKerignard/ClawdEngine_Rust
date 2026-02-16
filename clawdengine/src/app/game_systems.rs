@@ -20,6 +20,7 @@ impl App {
                 dt.clamp(0.001, 0.02),
                 gravity,
                 ground_y,
+                &mut self.entity_buf,
             );
         }
 
@@ -30,7 +31,7 @@ impl App {
 
         // Animation system (Play mode only)
         if is_playing {
-            animation::animation_system(&mut self.world, dt.max(0.001));
+            animation::animation_system(&mut self.world, dt.max(0.001), &mut self.entity_buf);
         }
 
         // Skeletal animation (always evaluate for bind pose, only advance time when playing)
@@ -41,6 +42,7 @@ impl App {
                 anim_dt,
                 &scene.skeleton_store,
                 &scene.animation_clip_store,
+                &mut self.entity_buf,
             );
             scene.joint_matrix_cache.clear();
             for (eid, data) in joint_data {

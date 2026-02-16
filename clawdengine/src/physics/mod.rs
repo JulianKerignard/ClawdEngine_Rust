@@ -13,6 +13,7 @@ use collision::{
 
 pub const DEFAULT_GRAVITY: f32 = 9.81;
 pub const DEFAULT_GROUND_Y: f32 = 0.0;
+pub const VELOCITY_SLEEP_THRESHOLD: f32 = 0.1;
 
 struct ColBody {
     eid: EntityId,
@@ -40,11 +41,14 @@ impl PhysicsSystem {
         dt: f32,
         gravity: f32,
         ground_y: f32,
+        entity_buf: &mut Vec<EntityId>,
     ) -> Vec<CollisionEvent> {
-        let entities: Vec<EntityId> = world.iter_entities().collect();
+        entity_buf.clear();
+        entity_buf.extend(world.iter_entities());
+        let entities = &*entity_buf;
 
         // 1. Gravity + integrate (semi-implicit Euler: update velocity first, then position)
-        for &eid in &entities {
+        for &eid in entities {
             let Some(rb) = world.get_rigid_body(eid) else { continue; };
             let mut velocity = rb.velocity;
             if rb.gravity_enabled {
@@ -60,7 +64,7 @@ impl PhysicsSystem {
 
         // 2. Collect world AABBs for entities with Collider
         let mut bodies: Vec<ColBody> = Vec::new();
-        for &eid in &entities {
+        for &eid in entities {
             let collider = match world.get_collider(eid) {
                 Some(c) => *c,
                 None => continue,
@@ -189,10 +193,12 @@ impl PhysicsSystem {
             }
         }
 
-        // 4. Resolve contacts
+        // 4. Resolve contacts — build index for O(1) lookup
+        let body_index: std::collections::HashMap<EntityId, usize> =
+            bodies.iter().enumerate().map(|(i, b)| (b.eid, i)).collect();
         for contact in &contacts {
-            let Some(a_idx) = bodies.iter().position(|b| b.eid == contact.entity_a) else { continue; };
-            let Some(b_idx) = bodies.iter().position(|b| b.eid == contact.entity_b) else { continue; };
+            let Some(&a_idx) = body_index.get(&contact.entity_a) else { continue; };
+            let Some(&b_idx) = body_index.get(&contact.entity_b) else { continue; };
 
             // Skip if either is trigger
             if bodies[a_idx].is_trigger || bodies[b_idx].is_trigger { continue; }
@@ -245,7 +251,7 @@ impl PhysicsSystem {
         }
 
         // 5. Ground plane collision (for entities with RigidBody + Collider)
-        for &eid in &entities {
+        for &eid in entities {
             let Some(_rb) = world.get_rigid_body(eid) else { continue; };
             let Some(collider) = world.get_collider(eid).copied() else { continue; };
             if collider.is_trigger { continue; }
@@ -262,12 +268,12 @@ impl PhysicsSystem {
                 if let Some(rb) = world.get_rigid_body_mut(eid) {
                     if rb.velocity.y < 0.0 {
                         rb.velocity.y = -rb.velocity.y * restitution;
-                        if rb.velocity.y.abs() < 0.1 {
+                        if rb.velocity.y.abs() < VELOCITY_SLEEP_THRESHOLD {
                             rb.velocity.y = 0.0;
                         }
                     }
                     // Ground friction: dampen horizontal velocity
-                    if rb.velocity.y.abs() < 0.1 {
+                    if rb.velocity.y.abs() < VELOCITY_SLEEP_THRESHOLD {
                         let damp = (1.0 - friction * dt * 5.0).max(0.0);
                         rb.velocity.x *= damp;
                         rb.velocity.z *= damp;

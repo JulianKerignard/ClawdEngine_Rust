@@ -111,27 +111,6 @@ impl AudioSystem {
         self.paths.clear();
     }
 
-    #[allow(dead_code)]
-    pub fn play_preview(&mut self, world: &World, eid: EntityId) {
-        let Some(audio) = world.get_audio_source(eid) else { return };
-        let Some(ref path) = audio.audio_path else { return };
-
-        let idx = eid.index;
-        if let Some(sink) = self.handles.remove(&idx) {
-            sink.stop();
-        }
-        self.start_sink(idx, path, audio.volume, audio.pitch, audio.loop_audio);
-    }
-
-    #[allow(dead_code)]
-    pub fn stop_preview(&mut self, eid: EntityId) {
-        let idx = eid.index;
-        if let Some(sink) = self.handles.remove(&idx) {
-            sink.stop();
-        }
-        self.paths.remove(&idx);
-    }
-
     fn start_sink(&mut self, idx: u32, path: &str, volume: f32, pitch: f32, looping: bool) {
         let Ok(file) = std::fs::File::open(path) else { return };
         let reader = BufReader::new(file);

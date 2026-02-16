@@ -8,7 +8,6 @@ impl GpuContext {
         encoder: &mut wgpu::CommandEncoder,
         scene: &SceneRenderer,
         renderables: &[(EntityId, &crate::core::Transform, usize, Option<&crate::core::Material>)],
-        per_entity_data: &[(wgpu::BindGroup, wgpu::BindGroup, wgpu::Buffer, wgpu::Buffer, Option<wgpu::BindGroup>)],
     ) {
         let mut shadow_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Shadow Pass"),
@@ -28,11 +27,11 @@ impl GpuContext {
         // Normal meshes
         shadow_pass.set_pipeline(&scene.shadow_map.pipeline);
         shadow_pass.set_bind_group(0, &scene.shadow_map.light_vp_bind_group, &[]);
-        for (i, (_eid, _transform, mesh_id, _material)) in renderables.iter().enumerate() {
-            if per_entity_data[i].4.is_some() { continue; }
-            if let Some(gpu_mesh) = scene.mesh_store.get(*mesh_id) {
-                let (ref model_bg, _, _, _, _) = per_entity_data[i];
-                shadow_pass.set_bind_group(1, model_bg, &[]);
+        for &(eid, _transform, mesh_id, _material) in renderables {
+            let Some(cached) = scene.entity_gpu_cache.get(&eid) else { continue; };
+            if cached.joint_bg.is_some() { continue; }
+            if let Some(gpu_mesh) = scene.mesh_store.get(mesh_id) {
+                shadow_pass.set_bind_group(1, &cached.model_bg, &[]);
                 shadow_pass.set_vertex_buffer(0, gpu_mesh.vertex_buffer.slice(..));
                 shadow_pass.set_index_buffer(gpu_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 shadow_pass.draw_indexed(0..gpu_mesh.index_count, 0, 0..1);
@@ -42,11 +41,11 @@ impl GpuContext {
         // Skinned meshes
         shadow_pass.set_pipeline(&scene.skinned_shadow_pipeline.pipeline);
         shadow_pass.set_bind_group(0, &scene.shadow_map.light_vp_bind_group, &[]);
-        for (i, (_eid, _transform, mesh_id, _material)) in renderables.iter().enumerate() {
-            let Some(ref joint_bg) = per_entity_data[i].4 else { continue; };
-            if let Some(gpu_mesh) = scene.mesh_store.get(*mesh_id) {
-                let (ref model_bg, _, _, _, _) = per_entity_data[i];
-                shadow_pass.set_bind_group(1, model_bg, &[]);
+        for &(eid, _transform, mesh_id, _material) in renderables {
+            let Some(cached) = scene.entity_gpu_cache.get(&eid) else { continue; };
+            let Some(ref joint_bg) = cached.joint_bg else { continue; };
+            if let Some(gpu_mesh) = scene.mesh_store.get(mesh_id) {
+                shadow_pass.set_bind_group(1, &cached.model_bg, &[]);
                 shadow_pass.set_bind_group(2, joint_bg, &[]);
                 shadow_pass.set_vertex_buffer(0, gpu_mesh.vertex_buffer.slice(..));
                 shadow_pass.set_index_buffer(gpu_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
@@ -64,7 +63,6 @@ impl GpuContext {
         resolve_view: &wgpu::TextureView,
         depth_view: &wgpu::TextureView,
         renderables: &[(EntityId, &crate::core::Transform, usize, Option<&crate::core::Material>)],
-        per_entity_data: &[(wgpu::BindGroup, wgpu::BindGroup, wgpu::Buffer, wgpu::Buffer, Option<wgpu::BindGroup>)],
         draw_lines: bool,
     ) -> (u32, u32) {
         let mut draw_call_count: u32 = 0;
@@ -108,12 +106,12 @@ impl GpuContext {
         pass.set_bind_group(0, camera_bg, &[]);
         pass.set_bind_group(3, &scene.lights_bind_group, &[]);
         pass.set_bind_group(4, &scene.shadow_map.shadow_bind_group, &[]);
-        for (i, (_eid, _transform, mesh_id, _material)) in renderables.iter().enumerate() {
-            if per_entity_data[i].4.is_some() { continue; }
-            if let Some(gpu_mesh) = scene.mesh_store.get(*mesh_id) {
-                let (ref model_bg, ref mat_bg, _, _, _) = per_entity_data[i];
-                pass.set_bind_group(1, model_bg, &[]);
-                pass.set_bind_group(2, mat_bg, &[]);
+        for &(eid, _transform, mesh_id, _material) in renderables {
+            let Some(cached) = scene.entity_gpu_cache.get(&eid) else { continue; };
+            if cached.joint_bg.is_some() { continue; }
+            if let Some(gpu_mesh) = scene.mesh_store.get(mesh_id) {
+                pass.set_bind_group(1, &cached.model_bg, &[]);
+                pass.set_bind_group(2, &cached.mat_bg, &[]);
                 pass.set_vertex_buffer(0, gpu_mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(gpu_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..gpu_mesh.index_count, 0, 0..1);
@@ -127,12 +125,12 @@ impl GpuContext {
         pass.set_bind_group(0, camera_bg, &[]);
         pass.set_bind_group(3, &scene.lights_bind_group, &[]);
         pass.set_bind_group(4, &scene.shadow_map.shadow_bind_group, &[]);
-        for (i, (_eid, _transform, mesh_id, _material)) in renderables.iter().enumerate() {
-            let Some(ref joint_bg) = per_entity_data[i].4 else { continue; };
-            if let Some(gpu_mesh) = scene.mesh_store.get(*mesh_id) {
-                let (ref model_bg, ref mat_bg, _, _, _) = per_entity_data[i];
-                pass.set_bind_group(1, model_bg, &[]);
-                pass.set_bind_group(2, mat_bg, &[]);
+        for &(eid, _transform, mesh_id, _material) in renderables {
+            let Some(cached) = scene.entity_gpu_cache.get(&eid) else { continue; };
+            let Some(ref joint_bg) = cached.joint_bg else { continue; };
+            if let Some(gpu_mesh) = scene.mesh_store.get(mesh_id) {
+                pass.set_bind_group(1, &cached.model_bg, &[]);
+                pass.set_bind_group(2, &cached.mat_bg, &[]);
                 pass.set_bind_group(5, joint_bg, &[]);
                 pass.set_vertex_buffer(0, gpu_mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(gpu_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);

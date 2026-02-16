@@ -28,7 +28,7 @@ pub struct LogEntry {
 }
 
 struct LogBufferInner {
-    entries: Vec<LogEntry>,
+    entries: std::collections::VecDeque<LogEntry>,
     start_time: Instant,
     max_entries: usize,
     error_count: u32,
@@ -45,7 +45,7 @@ impl LogBuffer {
     fn new(max_entries: usize) -> Self {
         Self {
             inner: Arc::new(Mutex::new(LogBufferInner {
-                entries: Vec::with_capacity(256),
+                entries: std::collections::VecDeque::with_capacity(256),
                 start_time: Instant::now(),
                 max_entries,
                 error_count: 0,
@@ -67,9 +67,9 @@ impl LogBuffer {
         }
 
         if inner.entries.len() >= inner.max_entries {
-            inner.entries.remove(0);
+            inner.entries.pop_front();
         }
-        inner.entries.push(LogEntry {
+        inner.entries.push_back(LogEntry {
             level,
             message,
             timestamp_secs,
@@ -81,7 +81,9 @@ impl LogBuffer {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .entries
-            .clone()
+            .iter()
+            .cloned()
+            .collect()
     }
 
     pub fn clear(&self) {

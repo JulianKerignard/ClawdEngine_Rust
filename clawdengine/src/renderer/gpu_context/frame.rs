@@ -188,17 +188,16 @@ impl GpuContext {
 
         scene.line_batch.upload(&self.device, &self.queue);
 
-        let (renderables, per_entity_data) =
-            self.prepare_entity_data(scene, world, selected_entity);
+        let renderables = self.prepare_entity_data(scene, world, selected_entity);
 
-        self.execute_shadow_pass(encoder, scene, &renderables, &per_entity_data);
+        self.execute_shadow_pass(encoder, scene, &renderables);
         self.execute_main_pass(
             encoder, scene,
             &scene.camera_bind_group,
             &scene.viewport.msaa_color_view,
             &scene.viewport.color_view,
             &scene.viewport.depth_view,
-            &renderables, &per_entity_data,
+            &renderables,
             true,
         )
     }
@@ -206,15 +205,16 @@ impl GpuContext {
     pub fn render_game_view(
         &self,
         encoder: &mut wgpu::CommandEncoder,
-        scene: &SceneRenderer,
+        scene: &mut SceneRenderer,
         world: &World,
     ) -> (u32, u32) {
-        let game_vp = match &scene.game_viewport {
-            Some(vp) => vp,
+        // Extract aspect ratio before mutable borrow
+        let aspect = match &scene.game_viewport {
+            Some(vp) => vp.aspect_ratio(),
             None => return (0, 0),
         };
 
-        let cam_uniforms = match Self::find_main_camera(world, game_vp.aspect_ratio()) {
+        let cam_uniforms = match Self::find_main_camera(world, aspect) {
             Some(u) => u,
             None => return (0, 0),
         };
@@ -225,8 +225,14 @@ impl GpuContext {
             bytemuck::cast_slice(&[cam_uniforms]),
         );
 
-        let (renderables, per_entity_data) = self.prepare_entity_data(scene, world, None);
-        self.execute_shadow_pass(encoder, scene, &renderables, &per_entity_data);
+        let renderables = self.prepare_entity_data(scene, world, None);
+        self.execute_shadow_pass(encoder, scene, &renderables);
+
+        // Re-borrow game_viewport immutably after prepare_entity_data is done
+        let game_vp = match &scene.game_viewport {
+            Some(vp) => vp,
+            None => return (0, 0),
+        };
         self.execute_main_pass(
             encoder,
             scene,
@@ -235,7 +241,6 @@ impl GpuContext {
             &game_vp.color_view,
             &game_vp.depth_view,
             &renderables,
-            &per_entity_data,
             false,
         )
     }

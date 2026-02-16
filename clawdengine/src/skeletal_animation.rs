@@ -1,5 +1,7 @@
 use glam::{Mat4, Quat, Vec3};
 
+const MIN_KEYFRAME_SEGMENT: f32 = 1e-6;
+
 use crate::core::{
     AnimationChannel, AnimationClip, AnimationClipStore, AnimationProperty, EntityId,
     InterpolationMode, Skeleton, SkeletonStore, Transform, World, MAX_JOINTS,
@@ -31,7 +33,7 @@ fn find_keyframes(timestamps: &[f32], time: f32) -> (usize, usize, f32) {
         }
     }
     let seg = timestamps[hi] - timestamps[lo];
-    let t = if seg > 1e-8 {
+    let t = if seg > MIN_KEYFRAME_SEGMENT {
         (time - timestamps[lo]) / seg
     } else {
         0.0
@@ -242,15 +244,18 @@ pub fn skeletal_animation_system(
     dt: f32,
     skeleton_store: &SkeletonStore,
     clip_store: &AnimationClipStore,
+    entity_buf: &mut Vec<EntityId>,
 ) -> Vec<(EntityId, [[[f32; 4]; 4]; MAX_JOINTS])> {
     let mut results = Vec::new();
 
-    let entities: Vec<EntityId> = world
-        .iter_entities()
-        .filter(|&eid| world.get_skeletal_animator(eid).is_some())
-        .collect();
+    entity_buf.clear();
+    entity_buf.extend(
+        world.iter_entities()
+            .filter(|&eid| world.get_skeletal_animator(eid).is_some()),
+    );
 
-    for eid in entities {
+    for i in 0..entity_buf.len() {
+        let eid = entity_buf[i];
         let (skeleton_id, clip_id, playing, looping, speed, current_time, duration) = {
             let anim = match world.get_skeletal_animator(eid) {
                 Some(a) => a,

@@ -417,17 +417,6 @@ impl World {
         if self.is_alive(id) { self.rigid_bodies[id.index as usize] = None; }
     }
 
-    #[allow(dead_code)]
-    pub fn rigid_bodies_iter(&self) -> impl Iterator<Item = (EntityId, &RigidBody)> + '_ {
-        self.rigid_bodies.iter().enumerate().filter_map(|(i, rb)| {
-            if self.alive[i] {
-                rb.as_ref().map(|rb| (EntityId::new(i as u32, self.generations[i]), rb))
-            } else {
-                None
-            }
-        })
-    }
-
     // ---- Collider ----
 
     pub fn set_collider(&mut self, id: EntityId, c: Collider) {

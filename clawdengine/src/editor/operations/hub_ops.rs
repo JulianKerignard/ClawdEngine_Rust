@@ -18,6 +18,7 @@ pub(crate) fn process_hub_action(
     scripts.clear();
     ec.deselect_all();
     ec.undo_stack = crate::editor::context::UndoStack::new();
+    ec.hub_thumbnails.clear();
 
     match action {
         HubAction::NewBlank => {
