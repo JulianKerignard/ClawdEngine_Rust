@@ -59,7 +59,6 @@ pub fn load_fbx(path: impl AsRef<Path>) -> Result<GltfScene> {
             up: ufbx::CoordinateAxis::PositiveY,
             front: ufbx::CoordinateAxis::PositiveZ,
         },
-        target_unit_meters: 0.01,
         space_conversion: ufbx::SpaceConversion::AdjustTransforms,
         generate_missing_normals: true,
         clean_skin_weights: true,
@@ -205,7 +204,9 @@ fn process_node_mesh(
     result: &mut GltfScene,
 ) {
     let name = elem_name(&node.element);
-    let transform = m4(&node.node_to_world);
+    // FBX is typically in cm — apply 0.01 scale to convert to engine units (meters)
+    let cm_to_m = Mat4::from_scale(Vec3::splat(0.01));
+    let transform = cm_to_m * m4(&node.node_to_world);
     let material = extract_material(mesh, tex_map);
     let store_name = format!("fbx:{}#{}", file_path, name);
 

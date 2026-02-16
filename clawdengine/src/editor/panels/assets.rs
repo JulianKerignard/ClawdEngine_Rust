@@ -100,11 +100,11 @@ impl<'a> EditorTabViewer<'a> {
                     let (name, tex_id, is_folder) = match entry {
                         AssetEntry::Folder(n) => (n.as_str(), folder_tex, true),
                         AssetEntry::File(n) if n.ends_with(".rs") => (n.as_str(), script_tex, false),
-                        AssetEntry::File(n) if n.ends_with(".obj") || n.ends_with(".glb") || n.ends_with(".gltf") => (n.as_str(), mesh_tex, false),
+                        AssetEntry::File(n) if n.ends_with(".obj") || n.ends_with(".glb") || n.ends_with(".gltf") || n.ends_with(".fbx") => (n.as_str(), mesh_tex, false),
                         AssetEntry::File(n) => (n.as_str(), file_tex, false),
                     };
 
-                    let is_mesh = !is_folder && (name.ends_with(".obj") || name.ends_with(".glb") || name.ends_with(".gltf"));
+                    let is_mesh = !is_folder && (name.ends_with(".obj") || name.ends_with(".glb") || name.ends_with(".gltf") || name.ends_with(".fbx"));
                     let sense = if is_mesh {
                         egui::Sense::click_and_drag()
                     } else {

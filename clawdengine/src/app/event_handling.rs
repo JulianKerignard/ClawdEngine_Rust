@@ -76,6 +76,21 @@ impl App {
                     gpu.resize(size.width, size.height);
                 }
             }
+            WindowEvent::DroppedFile(path) => {
+                let path_str = path.to_string_lossy().to_string();
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                match ext {
+                    "fbx" | "glb" | "gltf" | "obj" => {
+                        log::info!("File dropped: {}", path_str);
+                        if let Some(ref mut ec) = self.editor_ctx {
+                            ec.pending_load_asset = Some(path_str);
+                        }
+                    }
+                    _ => {
+                        log::warn!("Unsupported file type dropped: .{}", ext);
+                    }
+                }
+            }
             WindowEvent::RedrawRequested => {
                 self.handle_redraw();
             }
