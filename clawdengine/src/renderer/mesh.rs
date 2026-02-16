@@ -68,6 +68,7 @@ pub struct GpuMesh {
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
     pub index_count: u32,
+    pub is_skinned: bool,
 }
 
 pub struct MeshStore {
@@ -102,6 +103,7 @@ impl MeshStore {
             vertex_buffer,
             index_buffer,
             index_count: indices.len() as u32,
+            is_skinned: false,
         });
         self.aabbs.push(aabb);
         self.names.push(name.to_string());
@@ -111,6 +113,47 @@ impl MeshStore {
     #[allow(dead_code)]
     pub fn add(&mut self, device: &wgpu::Device, vertices: &[Vertex], indices: &[u32]) -> usize {
         self.add_named(device, vertices, indices, "")
+    }
+
+    /// Upload a skinned mesh (SkinnedVertex layout) and register it by name.
+    pub fn add_skinned_named(
+        &mut self,
+        device: &wgpu::Device,
+        vertices: &[super::skinned_mesh::SkinnedVertex],
+        indices: &[u32],
+        name: &str,
+    ) -> usize {
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Skinned Vertex Buffer"),
+            contents: bytemuck::cast_slice(vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Skinned Index Buffer"),
+            contents: bytemuck::cast_slice(indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        // Compute AABB from skinned vertices (positions are at same offset)
+        let aabb = {
+            let mut min = Vec3::splat(f32::MAX);
+            let mut max = Vec3::splat(f32::MIN);
+            for v in vertices {
+                let p = Vec3::from(v.position);
+                min = min.min(p);
+                max = max.max(p);
+            }
+            MeshAABB { min, max }
+        };
+        let id = self.meshes.len();
+        self.meshes.push(GpuMesh {
+            vertex_buffer,
+            index_buffer,
+            index_count: indices.len() as u32,
+            is_skinned: true,
+        });
+        self.aabbs.push(aabb);
+        self.names.push(name.to_string());
+        id
     }
 
     pub fn get_name(&self, id: usize) -> Option<&str> {
@@ -220,6 +263,266 @@ pub fn generate_sphere(rings: u32, sectors: u32) -> (Vec<Vertex>, Vec<u32>) {
             let next = cur + row_len;
             indices.extend_from_slice(&[cur, next, cur + 1, cur + 1, next, next + 1]);
         }
+    }
+
+    compute_tangents(&mut vertices, &indices);
+    (vertices, indices)
+}
+
+// ---- Procedural plane (XZ, facing +Y) ----
+
+pub fn generate_plane() -> (Vec<Vertex>, Vec<u32>) {
+    let mut vertices = Vec::with_capacity(4);
+    let normal = [0.0, 1.0, 0.0];
+    let positions = [
+        [-0.5, 0.0, -0.5],
+        [ 0.5, 0.0, -0.5],
+        [ 0.5, 0.0,  0.5],
+        [-0.5, 0.0,  0.5],
+    ];
+    let uvs = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+    for i in 0..4 {
+        vertices.push(Vertex {
+            position: positions[i],
+            normal,
+            uv: uvs[i],
+            tangent: [0.0; 4],
+        });
+    }
+    let indices = vec![0, 2, 1, 0, 3, 2];
+    compute_tangents(&mut vertices, &indices);
+    (vertices, indices)
+}
+
+// ---- Procedural cylinder ----
+
+pub fn generate_cylinder(segments: u32) -> (Vec<Vertex>, Vec<u32>) {
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+    let half_h = 0.5_f32;
+    let radius = 0.5_f32;
+
+    // Side wall
+    for i in 0..=segments {
+        let angle = 2.0 * std::f32::consts::PI * i as f32 / segments as f32;
+        let x = angle.cos();
+        let z = angle.sin();
+        let u = i as f32 / segments as f32;
+        // Bottom vertex
+        vertices.push(Vertex {
+            position: [x * radius, -half_h, z * radius],
+            normal: [x, 0.0, z],
+            uv: [u, 1.0],
+            tangent: [0.0; 4],
+        });
+        // Top vertex
+        vertices.push(Vertex {
+            position: [x * radius, half_h, z * radius],
+            normal: [x, 0.0, z],
+            uv: [u, 0.0],
+            tangent: [0.0; 4],
+        });
+    }
+    for i in 0..segments {
+        let b0 = i * 2;
+        let b1 = b0 + 2;
+        indices.extend_from_slice(&[b0, b1, b0 + 1, b0 + 1, b1, b1 + 1]);
+    }
+
+    // Top cap
+    let top_center = vertices.len() as u32;
+    vertices.push(Vertex {
+        position: [0.0, half_h, 0.0],
+        normal: [0.0, 1.0, 0.0],
+        uv: [0.5, 0.5],
+        tangent: [0.0; 4],
+    });
+    for i in 0..=segments {
+        let angle = 2.0 * std::f32::consts::PI * i as f32 / segments as f32;
+        let x = angle.cos();
+        let z = angle.sin();
+        vertices.push(Vertex {
+            position: [x * radius, half_h, z * radius],
+            normal: [0.0, 1.0, 0.0],
+            uv: [0.5 + x * 0.5, 0.5 + z * 0.5],
+            tangent: [0.0; 4],
+        });
+    }
+    for i in 0..segments {
+        indices.extend_from_slice(&[top_center, top_center + 1 + i, top_center + 2 + i]);
+    }
+
+    // Bottom cap
+    let bot_center = vertices.len() as u32;
+    vertices.push(Vertex {
+        position: [0.0, -half_h, 0.0],
+        normal: [0.0, -1.0, 0.0],
+        uv: [0.5, 0.5],
+        tangent: [0.0; 4],
+    });
+    for i in 0..=segments {
+        let angle = 2.0 * std::f32::consts::PI * i as f32 / segments as f32;
+        let x = angle.cos();
+        let z = angle.sin();
+        vertices.push(Vertex {
+            position: [x * radius, -half_h, z * radius],
+            normal: [0.0, -1.0, 0.0],
+            uv: [0.5 + x * 0.5, 0.5 - z * 0.5],
+            tangent: [0.0; 4],
+        });
+    }
+    for i in 0..segments {
+        indices.extend_from_slice(&[bot_center, bot_center + 2 + i, bot_center + 1 + i]);
+    }
+
+    compute_tangents(&mut vertices, &indices);
+    (vertices, indices)
+}
+
+// ---- Procedural capsule ----
+
+pub fn generate_capsule(segments: u32, rings: u32) -> (Vec<Vertex>, Vec<u32>) {
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+    let radius = 0.5_f32;
+    let half_h = 0.5_f32; // half of cylinder section height
+    let half_rings = rings / 2;
+
+    // Top hemisphere
+    for r in 0..=half_rings {
+        let theta = std::f32::consts::FRAC_PI_2 * r as f32 / half_rings as f32;
+        let sin_t = theta.sin();
+        let cos_t = theta.cos();
+        for s in 0..=segments {
+            let phi = 2.0 * std::f32::consts::PI * s as f32 / segments as f32;
+            let x = cos_t * phi.cos();
+            let y = sin_t;
+            let z = cos_t * phi.sin();
+            vertices.push(Vertex {
+                position: [x * radius, y * radius + half_h, z * radius],
+                normal: [x, y, z],
+                uv: [s as f32 / segments as f32, r as f32 / (half_rings * 2 + 1) as f32],
+                tangent: [0.0; 4],
+            });
+        }
+    }
+
+    // Cylinder middle ring (just one ring at equator top and bottom)
+    let row_len = segments + 1;
+    for s in 0..=segments {
+        let phi = 2.0 * std::f32::consts::PI * s as f32 / segments as f32;
+        let x = phi.cos();
+        let z = phi.sin();
+        vertices.push(Vertex {
+            position: [x * radius, -half_h, z * radius],
+            normal: [x, 0.0, z],
+            uv: [s as f32 / segments as f32, 0.5],
+            tangent: [0.0; 4],
+        });
+    }
+
+    // Bottom hemisphere
+    for r in 0..=half_rings {
+        let theta = std::f32::consts::FRAC_PI_2 + std::f32::consts::FRAC_PI_2 * r as f32 / half_rings as f32;
+        let sin_t = theta.sin();
+        let cos_t = theta.cos();
+        for s in 0..=segments {
+            let phi = 2.0 * std::f32::consts::PI * s as f32 / segments as f32;
+            let x = cos_t * phi.cos();
+            let y = sin_t;
+            let z = cos_t * phi.sin();
+            vertices.push(Vertex {
+                position: [x * radius, -y * radius - half_h, z * radius],
+                normal: [x, -y, z],
+                uv: [s as f32 / segments as f32, 0.5 + (r as f32 + 1.0) / (half_rings * 2 + 1) as f32],
+                tangent: [0.0; 4],
+            });
+        }
+    }
+
+    // Index all rows
+    let total_rows = half_rings + 1 + 1 + half_rings; // top + mid + bottom
+    for r in 0..total_rows {
+        for s in 0..segments {
+            let cur = r * row_len + s;
+            let next = cur + row_len;
+            indices.extend_from_slice(&[cur, next, cur + 1, cur + 1, next, next + 1]);
+        }
+    }
+
+    compute_tangents(&mut vertices, &indices);
+    (vertices, indices)
+}
+
+// ---- Procedural cone ----
+
+pub fn generate_cone(segments: u32) -> (Vec<Vertex>, Vec<u32>) {
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+    let half_h = 0.5_f32;
+    let radius = 0.5_f32;
+    let slope = radius / (half_h * 2.0); // for normal calculation
+
+    // Tip vertex per segment (for smooth normals, each triangle slice needs its own tip)
+    let tip_start = vertices.len() as u32;
+    for i in 0..=segments {
+        let angle = 2.0 * std::f32::consts::PI * i as f32 / segments as f32;
+        let x = angle.cos();
+        let z = angle.sin();
+        let ny = slope;
+        let nx = x;
+        let nz = z;
+        let len = (nx * nx + ny * ny + nz * nz).sqrt();
+        vertices.push(Vertex {
+            position: [0.0, half_h, 0.0],
+            normal: [nx / len, ny / len, nz / len],
+            uv: [(i as f32 + 0.5) / segments as f32, 0.0],
+            tangent: [0.0; 4],
+        });
+    }
+    // Base ring
+    let base_start = vertices.len() as u32;
+    for i in 0..=segments {
+        let angle = 2.0 * std::f32::consts::PI * i as f32 / segments as f32;
+        let x = angle.cos();
+        let z = angle.sin();
+        let ny = slope;
+        let nx = x;
+        let nz = z;
+        let len = (nx * nx + ny * ny + nz * nz).sqrt();
+        vertices.push(Vertex {
+            position: [x * radius, -half_h, z * radius],
+            normal: [nx / len, ny / len, nz / len],
+            uv: [i as f32 / segments as f32, 1.0],
+            tangent: [0.0; 4],
+        });
+    }
+    // Side triangles
+    for i in 0..segments {
+        indices.extend_from_slice(&[tip_start + i, base_start + i + 1, base_start + i]);
+    }
+
+    // Bottom cap
+    let bot_center = vertices.len() as u32;
+    vertices.push(Vertex {
+        position: [0.0, -half_h, 0.0],
+        normal: [0.0, -1.0, 0.0],
+        uv: [0.5, 0.5],
+        tangent: [0.0; 4],
+    });
+    for i in 0..=segments {
+        let angle = 2.0 * std::f32::consts::PI * i as f32 / segments as f32;
+        let x = angle.cos();
+        let z = angle.sin();
+        vertices.push(Vertex {
+            position: [x * radius, -half_h, z * radius],
+            normal: [0.0, -1.0, 0.0],
+            uv: [0.5 + x * 0.5, 0.5 - z * 0.5],
+            tangent: [0.0; 4],
+        });
+    }
+    for i in 0..segments {
+        indices.extend_from_slice(&[bot_center, bot_center + 2 + i, bot_center + 1 + i]);
     }
 
     compute_tangents(&mut vertices, &indices);

@@ -143,6 +143,22 @@ pub fn default_projects_dir() -> PathBuf {
     PathBuf::from(home).join("ClawdEngine Projects")
 }
 
+// ---- Game Manifest (embedded in exported .app bundles) ----
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct GameManifest {
+    pub name: String,
+    pub startup_scene: String,
+}
+
+pub fn load_game_manifest() -> Result<GameManifest> {
+    // Look for game.ron next to the executable (in .app bundle: Resources/game.ron)
+    let path = super::paths::resolve("game.ron");
+    let content = std::fs::read_to_string(&path)?;
+    let manifest: GameManifest = ron::from_str(&content)?;
+    Ok(manifest)
+}
+
 /// Format a date string as relative time ("2h ago", "yesterday", "13 Feb")
 pub fn format_relative_date(iso: &str) -> String {
     let parsed = chrono::NaiveDateTime::parse_from_str(iso, "%Y-%m-%dT%H:%M:%S");

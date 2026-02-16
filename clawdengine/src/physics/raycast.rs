@@ -46,6 +46,62 @@ fn aabb_normal_at(point: Vec3, aabb_min: Vec3, aabb_max: Vec3) -> Vec3 {
     }
 }
 
+/// Ray-capsule intersection. Tests cylinder body + two hemisphere endcaps.
+pub fn ray_capsule(origin: Vec3, dir: Vec3, cap_a: Vec3, cap_b: Vec3, radius: f32) -> Option<f32> {
+    let t_a = ray_sphere(origin, dir, cap_a, radius);
+    let t_b = ray_sphere(origin, dir, cap_b, radius);
+
+    let ab = cap_b - cap_a;
+    let ab_len_sq = ab.length_squared();
+    let t_cyl = if ab_len_sq > 1e-12 {
+        let ab_n = ab * (1.0 / ab_len_sq.sqrt());
+        let ao = origin - cap_a;
+        let dir_perp = dir - ab_n * dir.dot(ab_n);
+        let ao_perp = ao - ab_n * ao.dot(ab_n);
+
+        let a = dir_perp.dot(dir_perp);
+        let b = 2.0 * ao_perp.dot(dir_perp);
+        let c = ao_perp.dot(ao_perp) - radius * radius;
+        let disc = b * b - 4.0 * a * c;
+
+        if disc >= 0.0 && a > 1e-12 {
+            let sqrt_d = disc.sqrt();
+            let t1 = (-b - sqrt_d) / (2.0 * a);
+            let t2 = (-b + sqrt_d) / (2.0 * a);
+            let t = if t1 >= 0.0 { t1 } else { t2 };
+            if t >= 0.0 {
+                let hit = origin + dir * t;
+                let proj = (hit - cap_a).dot(ab_n);
+                if proj >= 0.0 && proj <= ab_len_sq.sqrt() {
+                    Some(t)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    [t_a, t_b, t_cyl].iter().filter_map(|t| *t).reduce(f32::min)
+}
+
+/// Capsule surface normal at a hit point.
+fn capsule_normal_at(point: Vec3, cap_a: Vec3, cap_b: Vec3) -> Vec3 {
+    let ab = cap_b - cap_a;
+    let len_sq = ab.length_squared();
+    if len_sq < 1e-12 {
+        return (point - cap_a).normalize_or_zero();
+    }
+    let t = ((point - cap_a).dot(ab) / len_sq).clamp(0.0, 1.0);
+    let closest = cap_a + ab * t;
+    (point - closest).normalize_or_zero()
+}
+
 /// Ray-sphere intersection. Returns Some(t) if hit, t >= 0.
 pub fn ray_sphere(origin: Vec3, dir: Vec3, center: Vec3, radius: f32) -> Option<f32> {
     let oc = origin - center;
@@ -98,6 +154,10 @@ pub fn raycast(
                 let world_radius = collider.radius * max_scale;
                 ray_sphere(origin, dir, world_center, world_radius)
             }
+            ColliderShape::Capsule => {
+                let (ca, cb, cr) = collider.capsule_segment(wt.position, wt.rotation, wt.scale);
+                ray_capsule(origin, dir, ca, cb, cr)
+            }
         };
 
         if let Some(t) = hit_t {
@@ -108,6 +168,10 @@ pub fn raycast(
                     ColliderShape::Sphere => {
                         let center = (aabb_min + aabb_max) * 0.5;
                         (point - center).normalize_or_zero()
+                    }
+                    ColliderShape::Capsule => {
+                        let (ca, cb, _) = collider.capsule_segment(wt.position, wt.rotation, wt.scale);
+                        capsule_normal_at(point, ca, cb)
                     }
                 };
                 if closest.as_ref().map_or(true, |c| t < c.distance) {
@@ -151,6 +215,10 @@ pub fn raycast_all(
                 let world_radius = collider.radius * max_scale;
                 ray_sphere(origin, dir, world_center, world_radius)
             }
+            ColliderShape::Capsule => {
+                let (ca, cb, cr) = collider.capsule_segment(wt.position, wt.rotation, wt.scale);
+                ray_capsule(origin, dir, ca, cb, cr)
+            }
         };
 
         if let Some(t) = hit_t {
@@ -161,6 +229,10 @@ pub fn raycast_all(
                     ColliderShape::Sphere => {
                         let center = (aabb_min + aabb_max) * 0.5;
                         (point - center).normalize_or_zero()
+                    }
+                    ColliderShape::Capsule => {
+                        let (ca, cb, _) = collider.capsule_segment(wt.position, wt.rotation, wt.scale);
+                        capsule_normal_at(point, ca, cb)
                     }
                 };
                 hits.push(RayHit { entity: eid, point, normal, distance: t });

@@ -5,6 +5,8 @@ pub mod line_pipeline;
 pub mod pipeline;
 pub mod scene_helpers;
 pub mod shadow;
+pub mod skinned_mesh;
+pub mod skinned_pipeline;
 pub mod skybox;
 pub mod texture_store;
 pub mod viewport;
@@ -13,6 +15,8 @@ pub use gpu_context::{GpuContext, SceneRenderer};
 
 #[allow(unused_imports)]
 pub use mesh::{MeshStore, Vertex};
+#[allow(unused_imports)]
+pub use skinned_mesh::SkinnedVertex;
 #[allow(unused_imports)]
 pub use camera::Camera;
 #[allow(unused_imports)]

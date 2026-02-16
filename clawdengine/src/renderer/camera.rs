@@ -69,26 +69,23 @@ impl Camera {
     }
 
     /// Rotate the camera in place (free look)
-    pub fn rotate(&mut self, delta_x: f32, delta_y: f32) {
-        let sensitivity = 0.005;
+    pub fn rotate(&mut self, delta_x: f32, delta_y: f32, sensitivity: f32) {
         self.yaw += delta_x * sensitivity;
         self.pitch += delta_y * sensitivity;
         self.pitch = self.pitch.clamp(-1.5, 1.5);
     }
 
     /// Move camera along its forward axis (scroll zoom)
-    pub fn zoom(&mut self, delta: f32) {
-        let speed = 0.5;
+    pub fn zoom(&mut self, delta: f32, speed: f32) {
         self.position += self.forward() * delta * speed;
     }
 
     /// Pan camera (translate in screen plane)
-    pub fn pan(&mut self, delta_x: f32, delta_y: f32) {
+    pub fn pan(&mut self, delta_x: f32, delta_y: f32, sensitivity: f32) {
         let fwd = self.forward();
         let right = fwd.cross(self.up).normalize();
         let up = right.cross(fwd).normalize();
 
-        let sensitivity = 0.005;
         self.position += right * (-delta_x * sensitivity) + up * (delta_y * sensitivity);
     }
 

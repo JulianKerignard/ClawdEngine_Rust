@@ -741,6 +741,7 @@ dependencies = [
  "ron",
  "serde",
  "tobj",
+ "ufbx",
  "wgpu",
  "winit",
 ]
@@ -3831,6 +3832,15 @@ dependencies = [
  "memoffset",
  "tempfile",
  "winapi",
+]
+
+[[package]]
+name = "ufbx"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6d09c5c5a8ce72ad7853b9c92c2b0aae0a4ae0167055f2ddaabecd7e9bec870"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

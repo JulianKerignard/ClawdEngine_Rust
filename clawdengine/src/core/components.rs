@@ -80,6 +80,7 @@ pub enum LightKind {
     Spot,
 }
 
+fn default_capsule_height() -> f32 { 1.0 }
 fn default_range() -> f32 { 10.0 }
 fn default_inner_angle() -> f32 { 30.0_f32.to_radians() }
 fn default_outer_angle() -> f32 { 45.0_f32.to_radians() }
@@ -137,6 +138,7 @@ impl Default for RigidBody {
 pub enum ColliderShape {
     Box,
     Sphere,
+    Capsule,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -146,8 +148,11 @@ pub struct Collider {
     pub center: Vec3,
     /// Half-extents for Box shape (local space).
     pub half_extents: Vec3,
-    /// Radius for Sphere shape (local space).
+    /// Radius for Sphere / Capsule shape (local space).
     pub radius: f32,
+    /// Total height for Capsule shape (includes hemispheres).
+    #[serde(default = "default_capsule_height")]
+    pub height: f32,
     pub restitution: f32,
     pub friction: f32,
     pub is_trigger: bool,
@@ -160,6 +165,7 @@ impl Default for Collider {
             center: Vec3::ZERO,
             half_extents: Vec3::splat(0.5),
             radius: 0.5,
+            height: 1.0,
             restitution: 0.3,
             friction: 0.5,
             is_trigger: false,
@@ -187,7 +193,29 @@ impl Collider {
                 let r = self.radius * max_scale;
                 (world_center - Vec3::splat(r), world_center + Vec3::splat(r))
             }
+            ColliderShape::Capsule => {
+                let max_scale = scale.x.max(scale.y).max(scale.z);
+                let r = self.radius * max_scale;
+                let half_seg = ((self.height * scale.y) - 2.0 * r).max(0.0) * 0.5;
+                // Capsule axis is local Y, rotated
+                let axis = rotation * Vec3::Y;
+                let top = world_center + axis * half_seg;
+                let bot = world_center - axis * half_seg;
+                let min = top.min(bot) - Vec3::splat(r);
+                let max = top.max(bot) + Vec3::splat(r);
+                (min, max)
+            }
         }
+    }
+
+    /// For Capsule: returns the two endpoints of the inner segment and the world radius.
+    pub fn capsule_segment(&self, position: Vec3, rotation: glam::Quat, scale: Vec3) -> (Vec3, Vec3, f32) {
+        let world_center = position + rotation * (self.center * scale);
+        let max_scale = scale.x.max(scale.y).max(scale.z);
+        let r = self.radius * max_scale;
+        let half_seg = ((self.height * scale.y) - 2.0 * r).max(0.0) * 0.5;
+        let axis = rotation * Vec3::Y;
+        (world_center - axis * half_seg, world_center + axis * half_seg, r)
     }
 }
 
@@ -317,6 +345,44 @@ impl Default for UiElement {
             offset: [16.0, 16.0],
             size: [200.0, 40.0],
             visible: true,
+        }
+    }
+}
+
+// ---- Animator (Keyframe Animation) ----
+
+fn default_anim_speed() -> f32 { 1.0 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Keyframe {
+    pub time: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<Vec3>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation: Option<Quat>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale: Option<Vec3>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Animator {
+    pub keyframes: Vec<Keyframe>,
+    pub playing: bool,
+    pub loop_animation: bool,
+    #[serde(default = "default_anim_speed")]
+    pub speed: f32,
+    #[serde(skip)]
+    pub current_time: f32,
+}
+
+impl Default for Animator {
+    fn default() -> Self {
+        Self {
+            keyframes: Vec::new(),
+            playing: false,
+            loop_animation: true,
+            speed: 1.0,
+            current_time: 0.0,
         }
     }
 }

@@ -1,7 +1,7 @@
 use serde::{Serialize, Deserialize};
 use anyhow::Result;
 
-use crate::core::{World, Transform, MeshRenderer, Material, Light, RigidBody, Collider, CameraComponent, AudioSource, AudioListener, UiElement, Canvas, EntityId};
+use crate::core::{World, Transform, MeshRenderer, Material, Light, RigidBody, Collider, CameraComponent, AudioSource, AudioListener, UiElement, Canvas, Animator, SkeletalAnimator, EntityId};
 use crate::editor::context::ScriptRegistryEntry;
 use crate::renderer::mesh::MeshStore;
 use crate::scripting::GameScript;
@@ -40,6 +40,10 @@ pub struct EntityData {
     pub ui_element: Option<UiElement>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub canvas: Option<Canvas>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub animator: Option<Animator>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skeletal_animator: Option<SkeletalAnimator>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scripts: Vec<ScriptData>,
 }
@@ -103,6 +107,8 @@ pub fn save_scene(
         let audio_listener = world.get_audio_listener(eid).copied();
         let ui_element = world.get_ui_element(eid).cloned();
         let canvas = world.get_canvas(eid).copied();
+        let animator = world.get_animator(eid).cloned();
+        let skeletal_animator = world.get_skeletal_animator(eid).cloned();
 
         let entity_scripts: Vec<ScriptData> = scripts.iter()
             .filter(|(id, _)| *id == eid)
@@ -126,6 +132,8 @@ pub fn save_scene(
             audio_listener,
             ui_element,
             canvas,
+            animator,
+            skeletal_animator,
             scripts: entity_scripts,
         });
     }
@@ -210,6 +218,14 @@ pub fn load_scene(
 
         if let Some(cv) = &edata.canvas {
             world.set_canvas(eid, *cv);
+        }
+
+        if let Some(anim) = &edata.animator {
+            world.set_animator(eid, anim.clone());
+        }
+
+        if let Some(sa) = &edata.skeletal_animator {
+            world.set_skeletal_animator(eid, sa.clone());
         }
 
         for sdata in &edata.scripts {

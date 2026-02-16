@@ -7,11 +7,12 @@ use crate::core::{ColliderShape, EntityId, World};
 use collision::{
     CollisionEvent, CollisionState, Contact,
     aabb_contact, sphere_sphere_contact, sphere_aabb_contact,
+    capsule_sphere_contact, capsule_aabb_contact, capsule_capsule_contact,
     resolve_impulse, correct_positions,
 };
 
-const GRAVITY: f32 = 9.81;
-const GROUND_Y: f32 = 0.0;
+pub const DEFAULT_GRAVITY: f32 = 9.81;
+pub const DEFAULT_GROUND_Y: f32 = 0.0;
 
 struct ColBody {
     eid: EntityId,
@@ -24,6 +25,10 @@ struct ColBody {
     shape: ColliderShape,
     world_center: Vec3,
     world_radius: f32,
+    // Capsule segment endpoints (only valid for Capsule shape)
+    cap_a: Vec3,
+    cap_b: Vec3,
+    cap_r: f32,
 }
 
 pub struct PhysicsSystem;
@@ -33,6 +38,8 @@ impl PhysicsSystem {
         world: &mut World,
         collision_state: &mut CollisionState,
         dt: f32,
+        gravity: f32,
+        ground_y: f32,
     ) -> Vec<CollisionEvent> {
         let entities: Vec<EntityId> = world.iter_entities().collect();
 
@@ -41,7 +48,7 @@ impl PhysicsSystem {
             let Some(rb) = world.get_rigid_body(eid) else { continue; };
             let mut velocity = rb.velocity;
             if rb.gravity_enabled {
-                velocity.y -= GRAVITY * dt;
+                velocity.y -= gravity * dt;
             }
             if let Some(t) = world.get_transform_mut(eid) {
                 t.position += velocity * dt;
@@ -68,6 +75,12 @@ impl PhysicsSystem {
             let max_scale = wt.scale.x.max(wt.scale.y).max(wt.scale.z);
             let world_radius = collider.radius * max_scale;
 
+            let (cap_a, cap_b, cap_r) = if collider.shape == ColliderShape::Capsule {
+                collider.capsule_segment(wt.position, wt.rotation, wt.scale)
+            } else {
+                (Vec3::ZERO, Vec3::ZERO, 0.0)
+            };
+
             bodies.push(ColBody {
                 eid,
                 world_min,
@@ -79,6 +92,9 @@ impl PhysicsSystem {
                 shape: collider.shape,
                 world_center,
                 world_radius,
+                cap_a,
+                cap_b,
+                cap_r,
             });
         }
 
@@ -114,6 +130,50 @@ impl PhysicsSystem {
                     (ColliderShape::Box, ColliderShape::Sphere) => {
                         sphere_aabb_contact(
                             bodies[j].world_center, bodies[j].world_radius,
+                            bodies[i].world_min, bodies[i].world_max,
+                            bodies[j].eid, bodies[i].eid,
+                        ).map(|mut c| {
+                            std::mem::swap(&mut c.entity_a, &mut c.entity_b);
+                            c.normal = -c.normal;
+                            c
+                        })
+                    }
+                    // Capsule pairs
+                    (ColliderShape::Capsule, ColliderShape::Capsule) => {
+                        capsule_capsule_contact(
+                            bodies[i].cap_a, bodies[i].cap_b, bodies[i].cap_r,
+                            bodies[j].cap_a, bodies[j].cap_b, bodies[j].cap_r,
+                            bodies[i].eid, bodies[j].eid,
+                        )
+                    }
+                    (ColliderShape::Capsule, ColliderShape::Sphere) => {
+                        capsule_sphere_contact(
+                            bodies[i].cap_a, bodies[i].cap_b, bodies[i].cap_r,
+                            bodies[j].world_center, bodies[j].world_radius,
+                            bodies[i].eid, bodies[j].eid,
+                        )
+                    }
+                    (ColliderShape::Sphere, ColliderShape::Capsule) => {
+                        capsule_sphere_contact(
+                            bodies[j].cap_a, bodies[j].cap_b, bodies[j].cap_r,
+                            bodies[i].world_center, bodies[i].world_radius,
+                            bodies[j].eid, bodies[i].eid,
+                        ).map(|mut c| {
+                            std::mem::swap(&mut c.entity_a, &mut c.entity_b);
+                            c.normal = -c.normal;
+                            c
+                        })
+                    }
+                    (ColliderShape::Capsule, ColliderShape::Box) => {
+                        capsule_aabb_contact(
+                            bodies[i].cap_a, bodies[i].cap_b, bodies[i].cap_r,
+                            bodies[j].world_min, bodies[j].world_max,
+                            bodies[i].eid, bodies[j].eid,
+                        )
+                    }
+                    (ColliderShape::Box, ColliderShape::Capsule) => {
+                        capsule_aabb_contact(
+                            bodies[j].cap_a, bodies[j].cap_b, bodies[j].cap_r,
                             bodies[i].world_min, bodies[i].world_max,
                             bodies[j].eid, bodies[i].eid,
                         ).map(|mut c| {
@@ -188,11 +248,11 @@ impl PhysicsSystem {
         for &eid in &entities {
             let Some(_rb) = world.get_rigid_body(eid) else { continue; };
             let Some(t) = world.get_transform(eid) else { continue; };
-            if t.position.y <= GROUND_Y {
+            if t.position.y <= ground_y {
                 let restitution = world.get_collider(eid)
                     .map(|c| c.restitution).unwrap_or(0.0);
                 if let Some(t) = world.get_transform_mut(eid) {
-                    t.position.y = GROUND_Y;
+                    t.position.y = ground_y;
                 }
                 let friction = world.get_collider(eid)
                     .map(|c| c.friction).unwrap_or(0.5);

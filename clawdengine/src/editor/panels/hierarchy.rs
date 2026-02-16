@@ -66,11 +66,44 @@ impl<'a> EditorTabViewer<'a> {
                         self.editor_ctx.show_add_menu = false;
                         ui.close();
                     }
+                    if ui.button("Plane").clicked() {
+                        self.editor_ctx.pending_spawn = Some(SpawnRequest::Plane);
+                        self.editor_ctx.show_add_menu = false;
+                        ui.close();
+                    }
+                    if ui.button("Cylinder").clicked() {
+                        self.editor_ctx.pending_spawn = Some(SpawnRequest::Cylinder);
+                        self.editor_ctx.show_add_menu = false;
+                        ui.close();
+                    }
+                    if ui.button("Capsule").clicked() {
+                        self.editor_ctx.pending_spawn = Some(SpawnRequest::Capsule);
+                        self.editor_ctx.show_add_menu = false;
+                        ui.close();
+                    }
+                    if ui.button("Cone").clicked() {
+                        self.editor_ctx.pending_spawn = Some(SpawnRequest::Cone);
+                        self.editor_ctx.show_add_menu = false;
+                        ui.close();
+                    }
                 });
-                if ui.button("Light").clicked() {
-                    self.editor_ctx.pending_spawn = Some(SpawnRequest::Light);
-                    self.editor_ctx.show_add_menu = false;
-                }
+                ui.menu_button("Light", |ui| {
+                    if ui.button("Sun (Directional)").clicked() {
+                        self.editor_ctx.pending_spawn = Some(SpawnRequest::Sun);
+                        self.editor_ctx.show_add_menu = false;
+                        ui.close();
+                    }
+                    if ui.button("Point Light").clicked() {
+                        self.editor_ctx.pending_spawn = Some(SpawnRequest::PointLight);
+                        self.editor_ctx.show_add_menu = false;
+                        ui.close();
+                    }
+                    if ui.button("Spot Light").clicked() {
+                        self.editor_ctx.pending_spawn = Some(SpawnRequest::SpotLight);
+                        self.editor_ctx.show_add_menu = false;
+                        ui.close();
+                    }
+                });
                 if ui.button("Camera").clicked() {
                     self.editor_ctx.pending_spawn = Some(SpawnRequest::Camera);
                     self.editor_ctx.show_add_menu = false;
@@ -147,11 +180,37 @@ impl<'a> EditorTabViewer<'a> {
                         self.editor_ctx.pending_spawn = Some(SpawnRequest::Sphere);
                         ui.close();
                     }
+                    if ui.button("Plane").clicked() {
+                        self.editor_ctx.pending_spawn = Some(SpawnRequest::Plane);
+                        ui.close();
+                    }
+                    if ui.button("Cylinder").clicked() {
+                        self.editor_ctx.pending_spawn = Some(SpawnRequest::Cylinder);
+                        ui.close();
+                    }
+                    if ui.button("Capsule").clicked() {
+                        self.editor_ctx.pending_spawn = Some(SpawnRequest::Capsule);
+                        ui.close();
+                    }
+                    if ui.button("Cone").clicked() {
+                        self.editor_ctx.pending_spawn = Some(SpawnRequest::Cone);
+                        ui.close();
+                    }
                 });
-                if ui.button("Light").clicked() {
-                    self.editor_ctx.pending_spawn = Some(SpawnRequest::Light);
-                    ui.close();
-                }
+                ui.menu_button("Light", |ui| {
+                    if ui.button("Sun (Directional)").clicked() {
+                        self.editor_ctx.pending_spawn = Some(SpawnRequest::Sun);
+                        ui.close();
+                    }
+                    if ui.button("Point Light").clicked() {
+                        self.editor_ctx.pending_spawn = Some(SpawnRequest::PointLight);
+                        ui.close();
+                    }
+                    if ui.button("Spot Light").clicked() {
+                        self.editor_ctx.pending_spawn = Some(SpawnRequest::SpotLight);
+                        ui.close();
+                    }
+                });
                 if ui.button("Camera").clicked() {
                     self.editor_ctx.pending_spawn = Some(SpawnRequest::Camera);
                     ui.close();

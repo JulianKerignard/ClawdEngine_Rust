@@ -4,3 +4,4 @@ mod assets;
 mod viewport;
 mod console;
 mod game_view;
+mod settings;

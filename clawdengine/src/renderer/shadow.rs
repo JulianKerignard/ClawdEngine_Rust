@@ -16,6 +16,7 @@ pub struct ShadowMap {
     pub depth_view: wgpu::TextureView,
     pub light_vp_buffer: wgpu::Buffer,
     pub light_vp_bind_group: wgpu::BindGroup,
+    pub light_vp_bgl: wgpu::BindGroupLayout,
     pub pipeline: wgpu::RenderPipeline,
     pub shadow_bind_group: wgpu::BindGroup,
     _depth_texture: wgpu::Texture,
@@ -200,6 +201,7 @@ impl ShadowMap {
             depth_view,
             light_vp_buffer,
             light_vp_bind_group,
+            light_vp_bgl,
             pipeline,
             shadow_bind_group,
             _depth_texture: depth_texture,
@@ -207,12 +209,11 @@ impl ShadowMap {
         }
     }
 
-    pub fn compute_light_vp(light_dir: Vec3) -> Mat4 {
+    pub fn compute_light_vp(light_dir: Vec3, distance: f32, half_size: f32, near: f32, far: f32) -> Mat4 {
         let dir = light_dir.normalize();
-        let light_pos = -dir * 20.0;
+        let light_pos = -dir * distance;
         let view = Mat4::look_at_rh(light_pos, Vec3::ZERO, Vec3::Y);
-        let half = 15.0;
-        let proj = Mat4::orthographic_rh(-half, half, -half, half, 0.1, 50.0);
+        let proj = Mat4::orthographic_rh(-half_size, half_size, -half_size, half_size, near, far);
         proj * view
     }
 

@@ -7,7 +7,6 @@ use super::shadow::ShadowMap;
 
 // ---- Constants ----
 
-pub const AMBIENT_COLOR: [f32; 4] = [0.12, 0.14, 0.18, 1.0];
 pub const GIZMO_SHAFT_LEN: f32 = 1.2;
 pub const GIZMO_TIP_LEN: f32 = 1.6;
 pub const GIZMO_LINE_WIDTH: f32 = 0.035;
@@ -20,15 +19,13 @@ pub const GIZMO_BOX_HALF: f32 = 0.06;
 pub const LIGHT_ICON_COLOR: [f32; 4] = [0.94, 0.75, 0.25, 1.0];
 pub const LIGHT_ICON_SIZE: f32 = 0.3;
 pub const LIGHT_ICON_WIDTH: f32 = 0.02;
-pub const GRID_HALF_SIZE: i32 = 10;
-pub const GRID_COLOR: [f32; 4] = [0.4, 0.4, 0.4, 0.5];
 pub const SELECTION_TINT: [f32; 4] = [0.294, 0.545, 0.745, 1.0];
 
 const MAX_LIGHTS: usize = 4;
 
 // ---- Light uniform building ----
 
-pub fn build_light_uniforms(world: &World, queue: &wgpu::Queue, scene: &SceneRenderer) {
+pub fn build_light_uniforms(world: &World, queue: &wgpu::Queue, scene: &SceneRenderer, ambient: [f32; 4]) {
     let mut lights_data = [LightData {
         position: [0.0; 4],
         color: [0.0; 4],
@@ -76,7 +73,7 @@ pub fn build_light_uniforms(world: &World, queue: &wgpu::Queue, scene: &SceneRen
     }
 
     let lights_uniforms = LightsUniforms {
-        ambient: AMBIENT_COLOR,
+        ambient,
         count: light_count,
         _pad: [0.0; 3],
         lights: lights_data,
@@ -88,7 +85,7 @@ pub fn build_light_uniforms(world: &World, queue: &wgpu::Queue, scene: &SceneRen
     );
 }
 
-pub fn update_shadow_vp(world: &World, queue: &wgpu::Queue, scene: &SceneRenderer) {
+pub fn update_shadow_vp(world: &World, queue: &wgpu::Queue, scene: &SceneRenderer, distance: f32, half_size: f32, near: f32, far: f32) {
     let mut shadow_light_dir = glam::Vec3::new(0.0, -1.0, 0.0);
     for (eid, light) in world.lights_iter() {
         if light.kind == LightKind::Directional {
@@ -100,7 +97,7 @@ pub fn update_shadow_vp(world: &World, queue: &wgpu::Queue, scene: &SceneRendere
             break;
         }
     }
-    let light_vp = ShadowMap::compute_light_vp(shadow_light_dir);
+    let light_vp = ShadowMap::compute_light_vp(shadow_light_dir, distance, half_size, near, far);
     scene.shadow_map.update_light_vp(queue, light_vp);
 }
 
@@ -426,7 +423,60 @@ pub fn draw_collider_debug(
                 push_circle_thin(line_batch, c, [0.0, 1.0, 0.0], radius, COLLIDER_SPHERE_SEGS, COLLIDER_COLOR);
                 push_circle_thin(line_batch, c, [1.0, 0.0, 0.0], radius, COLLIDER_SPHERE_SEGS, COLLIDER_COLOR);
             }
+            crate::core::ColliderShape::Capsule => {
+                let (cap_a, cap_b, cap_r) = collider.capsule_segment(wt.position, wt.rotation, wt.scale);
+                let axis = (cap_b - cap_a).normalize_or_zero();
+                let axis_arr = [axis.x, axis.y, axis.z];
+
+                // Circles at both endpoints
+                let ca = [cap_a.x, cap_a.y, cap_a.z];
+                let cb = [cap_b.x, cap_b.y, cap_b.z];
+                push_circle_thin(line_batch, ca, axis_arr, cap_r, COLLIDER_SPHERE_SEGS, COLLIDER_COLOR);
+                push_circle_thin(line_batch, cb, axis_arr, cap_r, COLLIDER_SPHERE_SEGS, COLLIDER_COLOR);
+
+                // Perpendicular axes for connecting lines and hemisphere arcs
+                let perp1 = if axis.y.abs() < 0.9 {
+                    axis.cross(glam::Vec3::Y).normalize()
+                } else {
+                    axis.cross(glam::Vec3::X).normalize()
+                };
+                let perp2 = axis.cross(perp1).normalize();
+
+                // 4 connecting lines
+                for off in [perp1, -perp1, perp2, -perp2] {
+                    let s = cap_a + off * cap_r;
+                    let e = cap_b + off * cap_r;
+                    line_batch.push_line([s.x, s.y, s.z], [e.x, e.y, e.z], COLLIDER_COLOR);
+                }
+
+                // Hemisphere arcs (half-circles)
+                let hemi_segs = 16u32;
+                for perp in [perp1, perp2] {
+                    // Top hemisphere at cap_b
+                    push_half_circle_arc(line_batch, cap_b, axis, perp, cap_r, hemi_segs, COLLIDER_COLOR);
+                    // Bottom hemisphere at cap_a
+                    push_half_circle_arc(line_batch, cap_a, -axis, perp, cap_r, hemi_segs, COLLIDER_COLOR);
+                }
+            }
         }
+    }
+}
+
+fn push_half_circle_arc(
+    line_batch: &mut LineBatch,
+    center: glam::Vec3,
+    pole: glam::Vec3,
+    tangent: glam::Vec3,
+    radius: f32,
+    segments: u32,
+    color: [f32; 4],
+) {
+    let mut prev = center + tangent * radius;
+    for i in 1..=segments {
+        let angle = (i as f32 / segments as f32) * std::f32::consts::PI;
+        let pt = center + tangent * (radius * angle.cos()) + pole * (radius * angle.sin());
+        line_batch.push_line([prev.x, prev.y, prev.z], [pt.x, pt.y, pt.z], color);
+        prev = pt;
     }
 }
 
@@ -590,14 +640,14 @@ fn draw_camera_frustum(
 
 // ---- Grid drawing ----
 
-pub fn draw_grid(line_batch: &mut LineBatch, show_grid: bool) {
+pub fn draw_grid(line_batch: &mut LineBatch, show_grid: bool, grid_half_size: i32, grid_color: [f32; 4]) {
     if !show_grid {
         return;
     }
-    for i in -GRID_HALF_SIZE..=GRID_HALF_SIZE {
+    for i in -grid_half_size..=grid_half_size {
         let f = i as f32;
-        let half = GRID_HALF_SIZE as f32;
-        line_batch.push_line([f, 0.0, -half], [f, 0.0, half], GRID_COLOR);
-        line_batch.push_line([-half, 0.0, f], [half, 0.0, f], GRID_COLOR);
+        let half = grid_half_size as f32;
+        line_batch.push_line([f, 0.0, -half], [f, 0.0, half], grid_color);
+        line_batch.push_line([-half, 0.0, f], [half, 0.0, f], grid_color);
     }
 }

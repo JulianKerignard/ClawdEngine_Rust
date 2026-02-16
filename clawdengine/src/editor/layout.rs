@@ -30,6 +30,7 @@ impl<'a> TabViewer for EditorTabViewer<'a> {
             EditorTab::Assets => "\u{1F4C1} Assets".into(),
             EditorTab::Console => "Console".into(),
             EditorTab::GameView => "Game".into(),
+            EditorTab::Settings => "\u{2699} Settings".into(),
         }
     }
 
@@ -41,6 +42,7 @@ impl<'a> TabViewer for EditorTabViewer<'a> {
             EditorTab::Assets => self.show_assets(ui),
             EditorTab::Console => self.show_console(ui),
             EditorTab::GameView => self.show_game_view(ui),
+            EditorTab::Settings => self.show_settings(ui),
         }
     }
 

@@ -106,6 +106,83 @@ pub fn sphere_aabb_contact(
     }
 }
 
+// ---- Capsule helpers ----
+
+/// Closest point on segment AB to point P.
+fn closest_point_on_segment(a: Vec3, b: Vec3, p: Vec3) -> Vec3 {
+    let ab = b - a;
+    let len_sq = ab.length_squared();
+    if len_sq < 1e-12 { return a; }
+    let t = (p - a).dot(ab) / len_sq;
+    a + ab * t.clamp(0.0, 1.0)
+}
+
+/// Closest points between two segments (AB and CD). Returns (point_on_AB, point_on_CD).
+fn closest_points_segments(a: Vec3, b: Vec3, c: Vec3, d: Vec3) -> (Vec3, Vec3) {
+    let ab = b - a;
+    let cd = d - c;
+    let ac = c - a;
+    let d1 = ab.dot(ab);
+    let d2 = ab.dot(cd);
+    let d3 = cd.dot(cd);
+    let d4 = ab.dot(ac);
+    let d5 = cd.dot(ac);
+
+    let denom = d1 * d3 - d2 * d2;
+    let (s, _t) = if denom.abs() < 1e-12 {
+        // Parallel segments
+        let t0 = d4 / d1.max(1e-12);
+        (t0.clamp(0.0, 1.0), 0.0)
+    } else {
+        let s0 = ((d2 * d5 - d3 * d4) / denom).clamp(0.0, 1.0);
+        let t0 = ((d1 * d5 - d2 * d4) / denom).clamp(0.0, 1.0);
+        (s0, t0)
+    };
+
+    let p1 = a + ab * s;
+    // Refine: re-clamp in case one was clamped
+    let t2 = ((p1 - c).dot(cd) / d3.max(1e-12)).clamp(0.0, 1.0);
+    let p2 = c + cd * t2;
+    let s2 = ((p2 - a).dot(ab) / d1.max(1e-12)).clamp(0.0, 1.0);
+    let p1 = a + ab * s2;
+    (p1, p2)
+}
+
+// ---- Capsule-Sphere contact ----
+
+pub fn capsule_sphere_contact(
+    cap_a: Vec3, cap_b: Vec3, cap_r: f32,
+    sphere_center: Vec3, sphere_r: f32,
+    id_cap: EntityId, id_sphere: EntityId,
+) -> Option<Contact> {
+    let closest = closest_point_on_segment(cap_a, cap_b, sphere_center);
+    sphere_sphere_contact(closest, cap_r, sphere_center, sphere_r, id_cap, id_sphere)
+}
+
+// ---- Capsule-AABB contact ----
+
+pub fn capsule_aabb_contact(
+    cap_a: Vec3, cap_b: Vec3, cap_r: f32,
+    aabb_min: Vec3, aabb_max: Vec3,
+    id_cap: EntityId, id_aabb: EntityId,
+) -> Option<Contact> {
+    // Find closest point on capsule axis to AABB, then treat as sphere vs AABB
+    let aabb_center = (aabb_min + aabb_max) * 0.5;
+    let closest_on_seg = closest_point_on_segment(cap_a, cap_b, aabb_center);
+    sphere_aabb_contact(closest_on_seg, cap_r, aabb_min, aabb_max, id_cap, id_aabb)
+}
+
+// ---- Capsule-Capsule contact ----
+
+pub fn capsule_capsule_contact(
+    a1: Vec3, a2: Vec3, r_a: f32,
+    b1: Vec3, b2: Vec3, r_b: f32,
+    id_a: EntityId, id_b: EntityId,
+) -> Option<Contact> {
+    let (p1, p2) = closest_points_segments(a1, a2, b1, b2);
+    sphere_sphere_contact(p1, r_a, p2, r_b, id_a, id_b)
+}
+
 // ---- Impulse resolution ----
 
 pub fn resolve_impulse(

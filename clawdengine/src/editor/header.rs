@@ -46,6 +46,7 @@ pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                 ui.menu_button(
                     egui::RichText::new("File").color(theme::TEXT_SECONDARY),
                     |ui| {
+                        ui.set_min_width(200.0);
                         if ui.button("New Scene").clicked() {
                             editor_ctx.asset_modal = Some(AssetModal::NewScene { name: "New Scene".to_string() });
                             ui.close();
@@ -92,6 +93,13 @@ pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                                 }
                             }
                         }
+                        ui.separator();
+                        let build_enabled = editor_ctx.current_project_path.is_some();
+                        if ui.add_enabled(build_enabled, egui::Button::new("Build Game...")).clicked() {
+                            editor_ctx.pending_save_scene = Some(editor_ctx.scene_name.clone());
+                            editor_ctx.pending_build_game = true;
+                            ui.close();
+                        }
                     },
                 );
 
@@ -101,6 +109,7 @@ pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                 ui.menu_button(
                     egui::RichText::new("View").color(theme::TEXT_SECONDARY),
                     |ui| {
+                        ui.set_min_width(160.0);
                         let grid_label = if editor_ctx.show_grid { "\u{2611} Grid" } else { "\u{2610} Grid" };
                         if ui.button(grid_label).clicked() {
                             editor_ctx.show_grid = !editor_ctx.show_grid;
@@ -109,6 +118,23 @@ pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                         let stats_label = if editor_ctx.show_stats_overlay { "\u{2611} Stats Overlay" } else { "\u{2610} Stats Overlay" };
                         if ui.button(stats_label).clicked() {
                             editor_ctx.show_stats_overlay = !editor_ctx.show_stats_overlay;
+                            ui.close();
+                        }
+                        ui.separator();
+                        if ui.button("Settings").clicked() {
+                            // Add Settings tab to dock if not already present
+                            let has_settings = editor_ctx.dock_state.iter_all_tabs()
+                                .any(|(_, tab)| *tab == super::context::EditorTab::Settings);
+                            if !has_settings {
+                                let surface = editor_ctx.dock_state.main_surface_mut();
+                                surface.push_to_first_leaf(super::context::EditorTab::Settings);
+                            }
+                            // Focus the Settings tab
+                            if let Some((surface_idx, node_idx, tab_idx)) = editor_ctx.dock_state
+                                .find_tab(&super::context::EditorTab::Settings)
+                            {
+                                editor_ctx.dock_state.set_active_tab((surface_idx, node_idx, tab_idx));
+                            }
                             ui.close();
                         }
                     },
@@ -133,10 +159,10 @@ pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 2.0;
                             let tools = [
-                                (EditorTool::Select, "\u{25C7}", "Select (Q)"),
+                                (EditorTool::Select, "\u{25B2}", "Select (Q)"),
                                 (EditorTool::Move,   "\u{271A}", "Move (W)"),
                                 (EditorTool::Rotate, "\u{21BB}", "Rotate (E)"),
-                                (EditorTool::Scale,  "\u{2922}", "Scale (R)"),
+                                (EditorTool::Scale,  "\u{2194}", "Scale (R)"),
                             ];
                             for (tool, icon, tooltip) in &tools {
                                 let active = editor_ctx.active_tool == *tool;
@@ -171,7 +197,7 @@ pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                     let redo_color = if can_redo { theme::TEXT_SECONDARY } else { theme::TEXT_DISABLED.gamma_multiply(0.5) };
 
                     let undo_btn = ui.add(
-                        egui::Button::new(egui::RichText::new("\u{21B6}").color(undo_color).size(15.0))
+                        egui::Button::new(egui::RichText::new("\u{21A9}").color(undo_color).size(15.0))
                             .fill(Color32::TRANSPARENT)
                             .corner_radius(CornerRadius::same(4)),
                     );
@@ -179,7 +205,7 @@ pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                         editor_ctx.pending_undo = true;
                     }
                     let redo_btn = ui.add(
-                        egui::Button::new(egui::RichText::new("\u{21B7}").color(redo_color).size(15.0))
+                        egui::Button::new(egui::RichText::new("\u{21AA}").color(redo_color).size(15.0))
                             .fill(Color32::TRANSPARENT)
                             .corner_radius(CornerRadius::same(4)),
                     );

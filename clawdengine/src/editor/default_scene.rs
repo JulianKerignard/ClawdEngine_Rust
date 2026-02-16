@@ -173,7 +173,8 @@ pub fn setup_default_scene(
         ..Default::default()
     });
     world.set_audio_source(audio_entity, core::AudioSource {
-        audio_path: Some("assets/audio/test_chime.wav".to_string()),
+        audio_path: Some(crate::assets::paths::resolve("assets/audio/test_chime.wav")
+            .to_string_lossy().to_string()),
         volume: 0.8,
         pitch: 1.0,
         loop_audio: false,

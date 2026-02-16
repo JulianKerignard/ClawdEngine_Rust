@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use super::entity::EntityId;
 use super::components::*;
+use super::skeleton::SkeletalAnimator;
 
 #[derive(Clone)]
 pub struct WorldSnapshot {
@@ -19,6 +20,8 @@ pub struct WorldSnapshot {
     audio_listeners: Vec<Option<AudioListener>>,
     ui_elements: Vec<Option<UiElement>>,
     canvases: Vec<Option<Canvas>>,
+    animators: Vec<Option<Animator>>,
+    skeletal_animators: Vec<Option<SkeletalAnimator>>,
     parents: Vec<Option<EntityId>>,
     children: Vec<Option<Vec<EntityId>>>,
 }
@@ -50,6 +53,8 @@ pub struct World {
     audio_listeners: Vec<Option<AudioListener>>,
     ui_elements: Vec<Option<UiElement>>,
     canvases: Vec<Option<Canvas>>,
+    animators: Vec<Option<Animator>>,
+    skeletal_animators: Vec<Option<SkeletalAnimator>>,
 
     // Hierarchy
     parents: Vec<Option<EntityId>>,
@@ -77,6 +82,8 @@ impl World {
             audio_listeners: Vec::new(),
             ui_elements: Vec::new(),
             canvases: Vec::new(),
+            animators: Vec::new(),
+            skeletal_animators: Vec::new(),
             parents: Vec::new(),
             children: Vec::new(),
             custom: HashMap::new(),
@@ -102,6 +109,8 @@ impl World {
             self.audio_listeners[idx] = None;
             self.ui_elements[idx] = None;
             self.canvases[idx] = None;
+            self.animators[idx] = None;
+            self.skeletal_animators[idx] = None;
             self.parents[idx] = None;
             self.children[idx] = None;
             for vec in self.custom.values_mut() {
@@ -124,6 +133,8 @@ impl World {
             self.audio_listeners.push(None);
             self.ui_elements.push(None);
             self.canvases.push(None);
+            self.animators.push(None);
+            self.skeletal_animators.push(None);
             self.parents.push(None);
             self.children.push(None);
             for vec in self.custom.values_mut() {
@@ -151,6 +162,8 @@ impl World {
         self.audio_listeners[idx] = None;
         self.ui_elements[idx] = None;
         self.canvases[idx] = None;
+        self.animators[idx] = None;
+        self.skeletal_animators[idx] = None;
         // Detach from parent
         if let Some(parent_id) = self.parents[idx].take() {
             if self.is_alive(parent_id) {
@@ -530,6 +543,46 @@ impl World {
         if self.is_alive(id) { self.canvases[id.index as usize] = None; }
     }
 
+    // ---- Animator ----
+
+    pub fn set_animator(&mut self, id: EntityId, a: Animator) {
+        if self.is_alive(id) { self.animators[id.index as usize] = Some(a); }
+    }
+
+    pub fn get_animator(&self, id: EntityId) -> Option<&Animator> {
+        if !self.is_alive(id) { return None; }
+        self.animators[id.index as usize].as_ref()
+    }
+
+    pub fn get_animator_mut(&mut self, id: EntityId) -> Option<&mut Animator> {
+        if !self.is_alive(id) { return None; }
+        self.animators[id.index as usize].as_mut()
+    }
+
+    pub fn remove_animator(&mut self, id: EntityId) {
+        if self.is_alive(id) { self.animators[id.index as usize] = None; }
+    }
+
+    // ---- SkeletalAnimator ----
+
+    pub fn set_skeletal_animator(&mut self, id: EntityId, a: SkeletalAnimator) {
+        if self.is_alive(id) { self.skeletal_animators[id.index as usize] = Some(a); }
+    }
+
+    pub fn get_skeletal_animator(&self, id: EntityId) -> Option<&SkeletalAnimator> {
+        if !self.is_alive(id) { return None; }
+        self.skeletal_animators[id.index as usize].as_ref()
+    }
+
+    pub fn get_skeletal_animator_mut(&mut self, id: EntityId) -> Option<&mut SkeletalAnimator> {
+        if !self.is_alive(id) { return None; }
+        self.skeletal_animators[id.index as usize].as_mut()
+    }
+
+    pub fn remove_skeletal_animator(&mut self, id: EntityId) {
+        if self.is_alive(id) { self.skeletal_animators[id.index as usize] = None; }
+    }
+
     // ---- TypeMap: custom components ----
 
     pub fn add_custom<T: Any>(&mut self, id: EntityId, comp: T) {
@@ -581,6 +634,8 @@ impl World {
             audio_listeners: self.audio_listeners.clone(),
             ui_elements: self.ui_elements.clone(),
             canvases: self.canvases.clone(),
+            animators: self.animators.clone(),
+            skeletal_animators: self.skeletal_animators.clone(),
             parents: self.parents.clone(),
             children: self.children.clone(),
         }
@@ -600,6 +655,8 @@ impl World {
         self.audio_listeners = snap.audio_listeners;
         self.ui_elements = snap.ui_elements;
         self.canvases = snap.canvases;
+        self.animators = snap.animators;
+        self.skeletal_animators = snap.skeletal_animators;
         self.parents = snap.parents;
         self.children = snap.children;
         // Rebuild free list from alive flags

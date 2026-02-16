@@ -22,6 +22,7 @@ anyhow = "1.0.101"
 log = "0.4.25"
 env_logger = "0.11.6"
 rodio = "0.21"
+ufbx = "0.10"
 rfd = "0.15"
 chrono = "0.4"
 
@@ -31,3 +32,9 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 2
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true
+codegen-units = 1

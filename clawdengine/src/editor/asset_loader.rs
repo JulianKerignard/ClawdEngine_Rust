@@ -1,7 +1,7 @@
 use std::sync::mpsc;
 
-use crate::assets::gltf_loader::{GltfLoadedMesh, GltfLoadedTexture};
-use crate::core::{self, World};
+use crate::assets::gltf_loader::{GltfLoadedMesh, GltfLoadedSkinnedMesh, GltfLoadedTexture};
+use crate::core::{self, AnimationClip, Skeleton, SkeletalAnimator, World};
 use crate::renderer::{GpuContext, SceneRenderer};
 
 use super::context::EditorContext;
@@ -18,6 +18,9 @@ pub struct PrecomputedTexture {
 pub struct PreparedGltfAsset {
     pub meshes: Vec<GltfLoadedMesh>,
     pub textures: Vec<PrecomputedTexture>,
+    pub skeletons: Vec<Skeleton>,
+    pub skinned_meshes: Vec<GltfLoadedSkinnedMesh>,
+    pub animation_clips: Vec<AnimationClip>,
     pub asset_path: String,
 }
 
@@ -89,8 +92,11 @@ pub fn start_background_load(
 
     std::thread::spawn(move || {
         let result = (|| -> Result<PreparedGltfAsset, String> {
-            let gltf_scene =
-                crate::assets::gltf_loader::load_gltf(&path).map_err(|e| e.to_string())?;
+            let gltf_scene = if path.ends_with(".fbx") {
+                crate::assets::fbx_loader::load_fbx(&path).map_err(|e| e.to_string())?
+            } else {
+                crate::assets::gltf_loader::load_gltf(&path).map_err(|e| e.to_string())?
+            };
 
             let textures: Vec<PrecomputedTexture> = gltf_scene
                 .textures
@@ -101,6 +107,9 @@ pub fn start_background_load(
             Ok(PreparedGltfAsset {
                 meshes: gltf_scene.meshes,
                 textures,
+                skeletons: gltf_scene.skeletons,
+                skinned_meshes: gltf_scene.skinned_meshes,
+                animation_clips: gltf_scene.animation_clips,
                 asset_path: path,
             })
         })();
@@ -178,7 +187,39 @@ fn create_entities_from_prepared(
     ec.undo_stack
         .push(world.snapshot(), ec.selected_entities.clone());
 
+    // Store skeletons first (we need IDs for SkeletalAnimator)
+    let skeleton_ids: Vec<usize> = prepared
+        .skeletons
+        .iter()
+        .map(|skel| {
+            if let Some(id) = scene.skeleton_store.find_by_name(&skel.name) {
+                id
+            } else {
+                scene.skeleton_store.add(skel.clone())
+            }
+        })
+        .collect();
+
+    // Store animation clips
+    let clip_ids: Vec<usize> = prepared
+        .animation_clips
+        .iter()
+        .map(|clip| {
+            scene
+                .animation_clip_store
+                .find_by_name(&clip.name)
+                .unwrap_or_else(|| scene.animation_clip_store.add(clip.clone()))
+        })
+        .collect();
+    let clip_names: Vec<String> = prepared
+        .animation_clips
+        .iter()
+        .map(|c| c.name.clone())
+        .collect();
+
     let mut first_id = None;
+
+    // Normal meshes
     for gltf_mesh in &prepared.meshes {
         let mesh_id = if let Some(id) = scene.mesh_store.find_by_name(&gltf_mesh.store_name) {
             id
@@ -204,28 +245,7 @@ fn create_entities_from_prepared(
             },
         );
 
-        let mut mat = core::Material::default();
-        if let Some(ref gmat) = gltf_mesh.material {
-            mat.albedo = gmat.albedo;
-            mat.roughness = gmat.roughness;
-            mat.metallic = gmat.metallic;
-            mat.emission = gmat.emission;
-
-            if let Some(tex_idx) = gmat.albedo_texture {
-                if let Some(&tid) = tex_ids.get(tex_idx) {
-                    mat.texture_id = Some(tid);
-                    mat.texture_path =
-                        Some(prepared.textures[tex_idx].cache_key.clone());
-                }
-            }
-            if let Some(tex_idx) = gmat.normal_texture {
-                if let Some(&tid) = tex_ids.get(tex_idx) {
-                    mat.normal_map_id = Some(tid);
-                    mat.normal_map_path =
-                        Some(prepared.textures[tex_idx].cache_key.clone());
-                }
-            }
-        }
+        let mat = build_material(&gltf_mesh.material, &prepared.textures, tex_ids);
         world.set_material(id, mat);
 
         world.set_mesh_renderer(
@@ -241,12 +261,101 @@ fn create_entities_from_prepared(
         }
     }
 
+    // Skinned meshes
+    for sm in &prepared.skinned_meshes {
+        let mesh_id = if let Some(id) = scene.mesh_store.find_by_name(&sm.store_name) {
+            id
+        } else {
+            scene.mesh_store.add_skinned_named(
+                &gpu.device,
+                &sm.vertices,
+                &sm.indices,
+                &sm.store_name,
+            )
+        };
+
+        let id = world.spawn_entity();
+        world.set_name(id, &sm.display_name);
+
+        let (scale, rotation, translation) = sm.transform.to_scale_rotation_translation();
+        world.set_transform(
+            id,
+            core::Transform {
+                position: translation + drop_pos,
+                rotation,
+                scale,
+            },
+        );
+
+        let mat = build_material(&sm.material, &prepared.textures, tex_ids);
+        world.set_material(id, mat);
+
+        world.set_mesh_renderer(
+            id,
+            core::MeshRenderer {
+                mesh_id: Some(mesh_id),
+                visible: true,
+            },
+        );
+
+        // Attach SkeletalAnimator with skeleton reference
+        let skel_store_id = skeleton_ids.get(sm.skeleton_index).copied();
+        let skel_name = skel_store_id.and_then(|sid| scene.skeleton_store.get_name(sid).map(|s| s.to_string()));
+        world.set_skeletal_animator(
+            id,
+            SkeletalAnimator {
+                skeleton_id: skel_store_id,
+                skeleton_name: skel_name,
+                clip_ids: clip_ids.clone(),
+                clip_names: clip_names.clone(),
+                active_clip: if clip_ids.is_empty() { None } else { Some(0) },
+                active_clip_name: clip_names.first().cloned(),
+                ..SkeletalAnimator::default()
+            },
+        );
+
+        if first_id.is_none() {
+            first_id = Some(id);
+        }
+    }
+
     if let Some(id) = first_id {
         ec.select(id);
     }
     log::info!(
-        "Loaded glTF asset: {} ({} meshes)",
+        "Loaded glTF asset: {} ({} meshes, {} skinned, {} skeletons, {} animations)",
         prepared.asset_path,
-        prepared.meshes.len()
+        prepared.meshes.len(),
+        prepared.skinned_meshes.len(),
+        prepared.skeletons.len(),
+        prepared.animation_clips.len(),
     );
+}
+
+fn build_material(
+    gmat: &Option<crate::assets::gltf_loader::GltfLoadedMaterial>,
+    textures: &[PrecomputedTexture],
+    tex_ids: &[usize],
+) -> core::Material {
+    let mut mat = core::Material::default();
+    if let Some(ref gm) = gmat {
+        mat.albedo = gm.albedo;
+        mat.roughness = gm.roughness;
+        mat.metallic = gm.metallic;
+        mat.emission = gm.emission;
+
+        if let Some(tex_idx) = gm.albedo_texture {
+            if let Some(&tid) = tex_ids.get(tex_idx) {
+                mat.texture_id = Some(tid);
+                mat.texture_path = Some(textures[tex_idx].cache_key.clone());
+            }
+        }
+        if let Some(tex_idx) = gm.normal_texture {
+            if let Some(&tid) = tex_ids.get(tex_idx) {
+                mat.normal_map_id = Some(tid);
+                mat.normal_map_path = Some(textures[tex_idx].cache_key.clone());
+            }
+        }
+    }
+    mat
 }

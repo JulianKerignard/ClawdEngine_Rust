@@ -92,7 +92,13 @@ pub enum SpawnRequest {
     Empty,
     Cube,
     Sphere,
-    Light,
+    Plane,
+    Cylinder,
+    Capsule,
+    Cone,
+    Sun,
+    PointLight,
+    SpotLight,
     Camera,
     Audio,
     Canvas,
@@ -111,6 +117,8 @@ pub enum ComponentKind {
     AudioListener,
     UiElement,
     Canvas,
+    Animator,
+    SkeletalAnimator,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -121,11 +129,16 @@ pub enum EditorTab {
     Assets,
     Console,
     GameView,
+    Settings,
 }
 
 pub struct BuiltinMeshes {
     pub cube: usize,
     pub sphere: usize,
+    pub plane: usize,
+    pub cylinder: usize,
+    pub capsule: usize,
+    pub cone: usize,
 }
 
 pub struct UndoEntry {
@@ -293,10 +306,19 @@ pub struct EditorContext {
     pub current_project_path: Option<String>,
     /// Original CWD at startup (restored when returning to hub)
     pub original_cwd: String,
+    /// Pending game build request
+    pub pending_build_game: bool,
+    pub project_settings: crate::assets::settings::ProjectSettings,
+    pub settings_dirty: bool,
 }
 
 impl EditorContext {
-    pub fn new(cube_mesh_id: usize, sphere_mesh_id: usize, log_buffer: super::console::LogBuffer) -> Self {
+    pub fn new(
+        cube_mesh_id: usize, sphere_mesh_id: usize,
+        plane_mesh_id: usize, cylinder_mesh_id: usize,
+        capsule_mesh_id: usize, cone_mesh_id: usize,
+        log_buffer: super::console::LogBuffer,
+    ) -> Self {
         Self {
             selected_entities: Vec::new(),
             pending_spawn: None,
@@ -305,6 +327,10 @@ impl EditorContext {
             builtin_meshes: BuiltinMeshes {
                 cube: cube_mesh_id,
                 sphere: sphere_mesh_id,
+                plane: plane_mesh_id,
+                cylinder: cylinder_mesh_id,
+                capsule: capsule_mesh_id,
+                cone: cone_mesh_id,
             },
             show_add_menu: false,
             viewport_rect: egui::Rect::from_min_max(
@@ -374,6 +400,9 @@ impl EditorContext {
             original_cwd: std::env::current_dir()
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_default(),
+            pending_build_game: false,
+            project_settings: crate::assets::settings::ProjectSettings::default(),
+            settings_dirty: false,
         }
     }
 
