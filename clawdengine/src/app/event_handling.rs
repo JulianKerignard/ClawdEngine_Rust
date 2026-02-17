@@ -56,12 +56,12 @@ impl App {
         // Player mode: ESC quits the game
         if self.player_scene.is_some() {
             if let WindowEvent::KeyboardInput { event: ref key_event, .. } = event {
-                if key_event.state == winit::event::ElementState::Pressed {
-                    if key_event.physical_key == winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::Escape) {
-                        log::info!("ESC pressed in player mode — exiting");
-                        event_loop.exit();
-                        return;
-                    }
+                if key_event.state == winit::event::ElementState::Pressed
+                    && key_event.physical_key == winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::Escape)
+                {
+                    log::info!("ESC pressed in player mode — exiting");
+                    event_loop.exit();
+                    return;
                 }
             }
         }
@@ -72,6 +72,7 @@ impl App {
                 event_loop.exit();
             }
             WindowEvent::Resized(size) => {
+                log::debug!("[Window] Resized to {}x{}", size.width, size.height);
                 if let Some(gpu) = &mut self.gpu {
                     gpu.resize(size.width, size.height);
                 }
@@ -79,15 +80,45 @@ impl App {
             WindowEvent::DroppedFile(path) => {
                 let path_str = path.to_string_lossy().to_string();
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                log::info!("[Drop] File dropped: '{}' (ext=.{}, size={} bytes)", path_str, ext, file_size);
                 match ext {
                     "fbx" | "glb" | "gltf" | "obj" => {
-                        log::info!("File dropped: {}", path_str);
+                        log::info!("[Drop] 3D model detected (.{}), initiating import pipeline", ext);
                         if let Some(ref mut ec) = self.editor_ctx {
-                            ec.pending_load_asset = Some(path_str);
+                            // Copy file to project folder, use local path for loading
+                            let load_path = crate::editor::operations::asset_ops::copy_dropped_file_to_project(ec, &path_str)
+                                .unwrap_or(path_str.clone());
+                            log::debug!("[Drop] Load path resolved: '{}'", load_path);
+
+                            // Navigate asset browser to project root and highlight the imported file
+                            ec.asset_current_dir = std::path::PathBuf::from(".");
+                            if let Some(fname) = std::path::Path::new(&load_path).file_name() {
+                                ec.asset_highlight_file = Some(fname.to_string_lossy().into_owned());
+                                ec.asset_highlight_timer = 3.0;
+                            }
+                            ec.refresh_assets();
+
+                            ec.pending_load_asset = Some(load_path);
+                        } else {
+                            log::warn!("[Drop] No editor context — cannot load asset");
+                        }
+                    }
+                    "png" | "jpg" | "jpeg" | "tga" | "bmp" | "hdr" | "wav" | "mp3" | "ogg" | "flac" => {
+                        log::info!("[Drop] Asset file (.{}), copying to project", ext);
+                        if let Some(ref mut ec) = self.editor_ctx {
+                            if let Some(local_path) = crate::editor::operations::asset_ops::copy_dropped_file_to_project(ec, &path_str) {
+                                ec.asset_current_dir = std::path::PathBuf::from(".");
+                                if let Some(fname) = std::path::Path::new(&local_path).file_name() {
+                                    ec.asset_highlight_file = Some(fname.to_string_lossy().into_owned());
+                                    ec.asset_highlight_timer = 3.0;
+                                }
+                                ec.refresh_assets();
+                            }
                         }
                     }
                     _ => {
-                        log::warn!("Unsupported file type dropped: .{}", ext);
+                        log::warn!("[Drop] Unsupported file type: .{} — ignoring", ext);
                     }
                 }
             }

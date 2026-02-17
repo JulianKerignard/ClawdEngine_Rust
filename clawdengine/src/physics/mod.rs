@@ -5,32 +5,15 @@ use glam::Vec3;
 
 use crate::core::{ColliderShape, EntityId, World};
 use collision::{
-    CollisionEvent, CollisionState, Contact,
+    ColBody, CollisionEvent, CollisionState,
     aabb_contact, sphere_sphere_contact, sphere_aabb_contact,
     capsule_sphere_contact, capsule_aabb_contact, capsule_capsule_contact,
-    resolve_impulse, correct_positions,
+    flip_contact, resolve_impulse, correct_positions,
 };
 
 pub const DEFAULT_GRAVITY: f32 = 9.81;
 pub const DEFAULT_GROUND_Y: f32 = 0.0;
 pub const VELOCITY_SLEEP_THRESHOLD: f32 = 0.1;
-
-struct ColBody {
-    eid: EntityId,
-    world_min: Vec3,
-    world_max: Vec3,
-    has_rb: bool,
-    is_trigger: bool,
-    restitution: f32,
-    friction: f32,
-    shape: ColliderShape,
-    world_center: Vec3,
-    world_radius: f32,
-    // Capsule segment endpoints (only valid for Capsule shape)
-    cap_a: Vec3,
-    cap_b: Vec3,
-    cap_r: f32,
-}
 
 pub struct PhysicsSystem;
 
@@ -62,8 +45,8 @@ impl PhysicsSystem {
             }
         }
 
-        // 2. Collect world AABBs for entities with Collider
-        let mut bodies: Vec<ColBody> = Vec::new();
+        // 2. Collect world AABBs for entities with Collider (reuse buffer)
+        collision_state.bodies.clear();
         for &eid in entities {
             let collider = match world.get_collider(eid) {
                 Some(c) => *c,
@@ -85,7 +68,7 @@ impl PhysicsSystem {
                 (Vec3::ZERO, Vec3::ZERO, 0.0)
             };
 
-            bodies.push(ColBody {
+            collision_state.bodies.push(ColBody {
                 eid,
                 world_min,
                 world_max,
@@ -102,8 +85,9 @@ impl PhysicsSystem {
             });
         }
 
-        // 3. Broad phase N² — detect contacts
-        let mut contacts: Vec<Contact> = Vec::new();
+        // 3. Broad phase N² — detect contacts (reuse buffer)
+        collision_state.contacts.clear();
+        let bodies = &collision_state.bodies;
         for i in 0..bodies.len() {
             for j in (i + 1)..bodies.len() {
                 // Skip static-static pairs
@@ -136,11 +120,7 @@ impl PhysicsSystem {
                             bodies[j].world_center, bodies[j].world_radius,
                             bodies[i].world_min, bodies[i].world_max,
                             bodies[j].eid, bodies[i].eid,
-                        ).map(|mut c| {
-                            std::mem::swap(&mut c.entity_a, &mut c.entity_b);
-                            c.normal = -c.normal;
-                            c
-                        })
+                        ).map(flip_contact)
                     }
                     // Capsule pairs
                     (ColliderShape::Capsule, ColliderShape::Capsule) => {
@@ -162,11 +142,7 @@ impl PhysicsSystem {
                             bodies[j].cap_a, bodies[j].cap_b, bodies[j].cap_r,
                             bodies[i].world_center, bodies[i].world_radius,
                             bodies[j].eid, bodies[i].eid,
-                        ).map(|mut c| {
-                            std::mem::swap(&mut c.entity_a, &mut c.entity_b);
-                            c.normal = -c.normal;
-                            c
-                        })
+                        ).map(flip_contact)
                     }
                     (ColliderShape::Capsule, ColliderShape::Box) => {
                         capsule_aabb_contact(
@@ -180,23 +156,23 @@ impl PhysicsSystem {
                             bodies[j].cap_a, bodies[j].cap_b, bodies[j].cap_r,
                             bodies[i].world_min, bodies[i].world_max,
                             bodies[j].eid, bodies[i].eid,
-                        ).map(|mut c| {
-                            std::mem::swap(&mut c.entity_a, &mut c.entity_b);
-                            c.normal = -c.normal;
-                            c
-                        })
+                        ).map(flip_contact)
                     }
                 };
                 if let Some(c) = contact {
-                    contacts.push(c);
+                    collision_state.contacts.push(c);
                 }
             }
         }
 
-        // 4. Resolve contacts — build index for O(1) lookup
-        let body_index: std::collections::HashMap<EntityId, usize> =
-            bodies.iter().enumerate().map(|(i, b)| (b.eid, i)).collect();
-        for contact in &contacts {
+        // 4. Resolve contacts — build index for O(1) lookup (reuse buffer)
+        collision_state.body_index.clear();
+        collision_state.body_index.extend(
+            collision_state.bodies.iter().enumerate().map(|(i, b)| (b.eid, i)),
+        );
+        let bodies = &collision_state.bodies;
+        let body_index = &collision_state.body_index;
+        for contact in &collision_state.contacts {
             let Some(&a_idx) = body_index.get(&contact.entity_a) else { continue; };
             let Some(&b_idx) = body_index.get(&contact.entity_b) else { continue; };
 
@@ -282,7 +258,10 @@ impl PhysicsSystem {
             }
         }
 
-        // 6. Generate events
-        collision_state.update(&contacts)
+        // 6. Generate events (take contacts out to avoid borrow conflict with &mut self)
+        let contacts = std::mem::take(&mut collision_state.contacts);
+        let events = collision_state.update(&contacts);
+        collision_state.contacts = contacts;
+        events
     }
 }

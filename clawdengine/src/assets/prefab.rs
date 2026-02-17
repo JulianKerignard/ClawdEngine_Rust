@@ -1,86 +1,51 @@
 use serde::{Serialize, Deserialize};
 use anyhow::Result;
 
-use crate::core::{World, Transform, MeshRenderer, Material, Light, RigidBody, Collider, CameraComponent, AudioSource, AudioListener, UiElement, Canvas, Animator, SkeletalAnimator, EntityId};
+use crate::core::{EntityId, World, MeshRenderer};
 use crate::editor::context::ScriptRegistryEntry;
 use crate::renderer::mesh::MeshStore;
 use crate::scripting::GameScript;
 
-// ---- Serialization structs ----
+use super::scene::{EntityData, MeshRef, ScriptData};
 
+/// A prefab is a saved entity subtree (root + all descendants).
 #[derive(Serialize, Deserialize)]
-pub struct SceneData {
+pub struct PrefabData {
     pub entities: Vec<EntityData>,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct EntityData {
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent_index: Option<usize>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub transform: Option<Transform>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mesh: Option<MeshRef>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub material: Option<Material>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub light: Option<Light>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rigid_body: Option<RigidBody>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub collider: Option<Collider>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub camera: Option<CameraComponent>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub audio_source: Option<AudioSource>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub audio_listener: Option<AudioListener>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ui_element: Option<UiElement>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub canvas: Option<Canvas>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub animator: Option<Animator>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub skeletal_animator: Option<SkeletalAnimator>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub scripts: Vec<ScriptData>,
+/// Collect an entity and all its descendants depth-first.
+fn collect_subtree(world: &World, root: EntityId) -> Vec<EntityId> {
+    let mut result = Vec::new();
+    fn recurse(world: &World, eid: EntityId, out: &mut Vec<EntityId>) {
+        out.push(eid);
+        for &child in world.get_children(eid) {
+            recurse(world, child, out);
+        }
+    }
+    recurse(world, root, &mut result);
+    result
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct MeshRef {
-    pub name: String,
-    pub visible: bool,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct ScriptData {
-    pub name: String,
-}
-
-// ---- Save ----
-
-pub fn save_scene(
+/// Save an entity subtree as a `.prefab.ron` file.
+pub fn save_prefab(
     world: &World,
     mesh_store: &MeshStore,
     scripts: &[(EntityId, Box<dyn GameScript>)],
+    root: EntityId,
     path: &str,
 ) -> Result<()> {
-    let mut entities = Vec::new();
+    let subtree = collect_subtree(world, root);
 
-    // Build EntityId → index mapping
-    let entity_list: Vec<EntityId> = world.iter_entities().collect();
-    let id_to_idx: std::collections::HashMap<EntityId, usize> = entity_list.iter()
+    // Build EntityId → index mapping within the subtree
+    let id_to_idx: std::collections::HashMap<EntityId, usize> = subtree.iter()
         .enumerate()
         .map(|(i, &eid)| (eid, i))
         .collect();
 
-    for eid in entity_list {
-        let name = world.get_name(eid)
-            .unwrap_or("")
-            .to_string();
-
+    let mut entities = Vec::new();
+    for &eid in &subtree {
+        let name = world.get_name(eid).unwrap_or("").to_string();
         let transform = world.get_transform(eid).copied();
 
         let mesh = world.get_mesh_renderer(eid).and_then(|mr| {
@@ -91,10 +56,7 @@ pub fn save_scene(
             if mesh_name.is_empty() && mr.mesh_id.is_none() {
                 None
             } else {
-                Some(MeshRef {
-                    name: mesh_name,
-                    visible: mr.visible,
-                })
+                Some(MeshRef { name: mesh_name, visible: mr.visible })
             }
         });
 
@@ -115,6 +77,7 @@ pub fn save_scene(
             .map(|(_, s)| ScriptData { name: s.name().to_string() })
             .collect();
 
+        // Parent index within the subtree (root has None)
         let parent_index = world.get_parent(eid)
             .and_then(|pid| id_to_idx.get(&pid).copied());
 
@@ -138,36 +101,32 @@ pub fn save_scene(
         });
     }
 
-    let scene = SceneData { entities };
+    let prefab = PrefabData { entities };
     let config = ron::ser::PrettyConfig::default();
-    let ron_str = ron::ser::to_string_pretty(&scene, config)?;
+    let ron_str = ron::ser::to_string_pretty(&prefab, config)?;
     std::fs::write(path, ron_str)?;
     Ok(())
 }
 
-// ---- Load ----
-
-pub fn load_scene(
+/// Instantiate a prefab into the world. Returns the root entity ID.
+pub fn instantiate_prefab(
     world: &mut World,
     mesh_store: &mut MeshStore,
     scripts: &mut Vec<(EntityId, Box<dyn GameScript>)>,
     script_registry: &[ScriptRegistryEntry],
     device: &wgpu::Device,
     path: &str,
-) -> Result<()> {
+) -> Result<EntityId> {
     let ron_str = std::fs::read_to_string(path)?;
-    let scene: SceneData = ron::from_str(&ron_str)?;
+    let prefab: PrefabData = ron::from_str(&ron_str)?;
 
-    // Clear existing world
-    let existing: Vec<EntityId> = world.iter_entities().collect();
-    for eid in existing {
-        world.destroy_entity(eid);
+    if prefab.entities.is_empty() {
+        anyhow::bail!("Prefab is empty");
     }
-    scripts.clear();
 
     // Phase 1: Create all entities
     let mut new_ids: Vec<EntityId> = Vec::new();
-    for edata in &scene.entities {
+    for edata in &prefab.entities {
         let eid = world.spawn_entity();
         new_ids.push(eid);
         world.set_name(eid, &edata.name);
@@ -187,43 +146,33 @@ pub fn load_scene(
         if let Some(mat) = &edata.material {
             world.set_material(eid, mat.clone());
         }
-
         if let Some(l) = &edata.light {
             world.set_light(eid, *l);
         }
-
         if let Some(rb) = &edata.rigid_body {
             world.set_rigid_body(eid, *rb);
         }
-
         if let Some(col) = &edata.collider {
             world.set_collider(eid, *col);
         }
-
         if let Some(cam) = &edata.camera {
             world.set_camera(eid, *cam);
         }
-
         if let Some(audio) = &edata.audio_source {
             world.set_audio_source(eid, audio.clone());
         }
-
         if let Some(al) = &edata.audio_listener {
             world.set_audio_listener(eid, *al);
         }
-
         if let Some(ui) = &edata.ui_element {
             world.set_ui_element(eid, ui.clone());
         }
-
         if let Some(cv) = &edata.canvas {
             world.set_canvas(eid, *cv);
         }
-
         if let Some(anim) = &edata.animator {
             world.set_animator(eid, anim.clone());
         }
-
         if let Some(sa) = &edata.skeletal_animator {
             world.set_skeletal_animator(eid, sa.clone());
         }
@@ -233,13 +182,13 @@ pub fn load_scene(
                 let script = (entry.factory)();
                 scripts.push((eid, script));
             } else {
-                log::warn!("Script '{}' not found in registry, skipping", sdata.name);
+                log::warn!("Prefab script '{}' not in registry, skipping", sdata.name);
             }
         }
     }
 
-    // Phase 2: Restore hierarchy
-    for (i, edata) in scene.entities.iter().enumerate() {
+    // Phase 2: Restore hierarchy within the prefab
+    for (i, edata) in prefab.entities.iter().enumerate() {
         if let Some(parent_idx) = edata.parent_index {
             if parent_idx < new_ids.len() && parent_idx != i {
                 world.set_parent(new_ids[i], new_ids[parent_idx]);
@@ -247,60 +196,42 @@ pub fn load_scene(
         }
     }
 
-    Ok(())
+    Ok(new_ids[0])
 }
 
+/// Resolve a mesh name to MeshStore id, reusing scene.rs logic.
 fn resolve_mesh(mesh_store: &mut MeshStore, device: &wgpu::Device, name: &str) -> Option<usize> {
     if name.is_empty() {
         return None;
     }
-
     // Check if already loaded
     if let Some(id) = mesh_store.find_by_name(name) {
         return Some(id);
     }
-
-    // glTF mesh: "gltf:<path>#<node>/<prim>"
+    // Try builtin names (Cube, Sphere, etc.) — already in mesh_store at startup
+    // For glTF/OBJ meshes, try reloading
     if let Some(rest) = name.strip_prefix("gltf:") {
         if let Some(hash_pos) = rest.find('#') {
             let file_path = &rest[..hash_pos];
-            match super::gltf_loader::load_gltf(file_path) {
-                Ok(gltf_scene) => {
-                    for gm in &gltf_scene.meshes {
-                        if mesh_store.find_by_name(&gm.store_name).is_none() {
-                            mesh_store.add_named(device, &gm.vertices, &gm.indices, &gm.store_name);
-                        }
+            if let Ok(gltf_scene) = super::gltf_loader::load_gltf(file_path) {
+                for gm in &gltf_scene.meshes {
+                    if mesh_store.find_by_name(&gm.store_name).is_none() {
+                        mesh_store.add_named(device, &gm.vertices, &gm.indices, &gm.store_name);
                     }
-                    return mesh_store.find_by_name(name);
                 }
-                Err(e) => {
-                    log::warn!("Failed to reload glTF mesh '{}': {}", name, e);
-                }
+                return mesh_store.find_by_name(name);
             }
         }
         return None;
     }
-
-    // Try loading OBJ if it's a safe file path
-    if name.contains("..") {
-        log::error!("Rejected unsafe mesh path: {}", name);
-        return None;
-    }
-    if name.starts_with("assets/") || name.contains('/') {
-        match super::obj_loader::load_obj(name) {
-            Ok(loaded) => {
-                if let Some(lm) = loaded.into_iter().next() {
-                    let id = mesh_store.add_named(device, &lm.vertices, &lm.indices, name);
-                    log::info!("Loaded mesh from scene: {}", name);
-                    return Some(id);
-                }
-            }
-            Err(e) => {
-                log::warn!("Failed to load mesh '{}': {}", name, e);
+    if !name.contains("..") && (name.starts_with("assets/") || name.contains('/')) {
+        if let Ok(loaded) = super::obj_loader::load_obj(name) {
+            if let Some(lm) = loaded.into_iter().next() {
+                let id = mesh_store.add_named(device, &lm.vertices, &lm.indices, name);
+                return Some(id);
             }
         }
     }
-
-    log::warn!("Could not resolve mesh: {}", name);
+    log::warn!("Prefab: could not resolve mesh '{}'", name);
     None
 }

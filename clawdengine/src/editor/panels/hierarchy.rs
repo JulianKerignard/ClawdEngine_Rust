@@ -409,12 +409,21 @@ impl<'a> EditorTabViewer<'a> {
 
         // Context menu
         response.context_menu(|ui| {
-            if self.world.get_parent(entity_id).is_some() {
-                if ui.button("Detach from Parent").clicked() {
-                    self.editor_ctx.pending_reparent = Some((entity_id, None));
-                    ui.close();
-                }
+            if self.world.get_parent(entity_id).is_some()
+                && ui.button("Detach from Parent").clicked()
+            {
+                self.editor_ctx.pending_reparent = Some((entity_id, None));
+                ui.close();
             }
+            if ui.button("Duplicate").clicked() {
+                self.editor_ctx.pending_duplicate = vec![entity_id];
+                ui.close();
+            }
+            if ui.button("Save as Prefab").clicked() {
+                self.editor_ctx.pending_save_prefab = Some(entity_id);
+                ui.close();
+            }
+            ui.separator();
             if ui.button("Delete").clicked() {
                 self.editor_ctx.pending_delete = vec![entity_id];
                 ui.close();

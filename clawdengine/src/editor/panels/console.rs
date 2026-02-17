@@ -61,6 +61,7 @@ impl<'a> EditorTabViewer<'a> {
                     LogLevel::Debug => ("[DBG]", theme::TEXT_DISABLED),
                 };
 
+                #[allow(clippy::manual_is_multiple_of)]
                 let row_bg = if visible_idx % 2 == 0 {
                     Color32::TRANSPARENT
                 } else {

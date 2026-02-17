@@ -129,11 +129,17 @@ impl SceneRenderer {
             skinned_shadow_pipeline,
             skeleton_store: crate::core::SkeletonStore::new(),
             animation_clip_store: crate::core::AnimationClipStore::new(),
+            animator_controller_store: crate::core::AnimatorControllerStore::new(),
             joint_matrix_cache: std::collections::HashMap::new(),
             game_viewport: None,
             game_camera_buffer,
             game_camera_bind_group,
             entity_gpu_cache: std::collections::HashMap::new(),
+            frame_counter: 0,
+            anim_local_poses_buf: Vec::new(),
+            anim_global_buf: Vec::new(),
+            anim_joint_buf: Vec::new(),
+            anim_results_buf: Vec::new(),
         }
     }
 

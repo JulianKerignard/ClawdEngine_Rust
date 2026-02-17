@@ -1,6 +1,7 @@
 use glam::Mat4;
 use serde::{Serialize, Deserialize};
 
+use super::animator_controller::AnimatorControllerState;
 use super::components::Transform;
 
 pub const MAX_JOINTS: usize = 128;
@@ -33,7 +34,7 @@ impl Skeleton {
     pub fn new(name: String, bones: Vec<Bone>, root_bone: usize) -> Self {
         // Verify topological ordering in debug builds
         debug_assert!(
-            bones.iter().enumerate().all(|(i, b)| b.parent.map_or(true, |p| p < i)),
+            bones.iter().enumerate().all(|(i, b)| b.parent.is_none_or(|p| p < i)),
             "Skeleton bones must be topologically sorted (parent index < child index)"
         );
         debug_assert!(root_bone < bones.len(), "root_bone out of bounds");
@@ -172,6 +173,15 @@ pub struct SkeletalAnimator {
     /// Skeleton name for scene serialization (resolved at load).
     #[serde(default)]
     pub skeleton_name: Option<String>,
+    /// Runtime ID of the AnimatorController in AnimatorControllerStore.
+    #[serde(skip)]
+    pub controller_id: Option<usize>,
+    /// Name for serialization (resolved at scene load).
+    #[serde(default)]
+    pub controller_name: Option<String>,
+    /// Runtime state of the controller (per-entity instance).
+    #[serde(skip)]
+    pub controller_state: Option<AnimatorControllerState>,
     /// Runtime clip IDs in AnimationClipStore.
     #[serde(skip)]
     pub clip_ids: Vec<usize>,
@@ -201,6 +211,9 @@ impl Default for SkeletalAnimator {
         Self {
             skeleton_id: None,
             skeleton_name: None,
+            controller_id: None,
+            controller_name: None,
+            controller_state: None,
             clip_ids: Vec::new(),
             clip_names: Vec::new(),
             active_clip: None,

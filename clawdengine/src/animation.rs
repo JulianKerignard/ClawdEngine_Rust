@@ -2,17 +2,23 @@ use crate::core::{EntityId, Keyframe, World};
 
 const MIN_KEYFRAME_SEGMENT: f32 = 1e-6;
 
+/// One-time flag so we log the first keyframe animation tick
+static ANIM_FIRST_TICK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn animation_system(world: &mut World, dt: f32, entity_buf: &mut Vec<EntityId>) {
     entity_buf.clear();
     entity_buf.extend(
         world.iter_entities()
-            .filter(|&e| world.get_animator(e).map_or(false, |a| a.playing)),
+            .filter(|&e| world.get_animator(e).is_some_and(|a| a.playing)),
     );
 
-    for i in 0..entity_buf.len() {
-        let eid = entity_buf[i];
+    if !entity_buf.is_empty() && !ANIM_FIRST_TICK.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        log::info!("[KeyframeAnim] System running: {} animating entities, dt={:.4}", entity_buf.len(), dt);
+    }
+
+    for &eid in entity_buf.iter() {
         let (looping, speed, time, max_t) = {
-            let a = world.get_animator(eid).unwrap();
+            let Some(a) = world.get_animator(eid) else { continue };
             if a.keyframes.len() < 2 {
                 continue;
             }
@@ -38,7 +44,7 @@ pub fn animation_system(world: &mut World, dt: f32, entity_buf: &mut Vec<EntityI
 
         // Borrow keyframes briefly to copy just the 2 surrounding frames (not the whole Vec)
         let (prev, next) = {
-            let a = world.get_animator(eid).unwrap();
+            let Some(a) = world.get_animator(eid) else { continue };
             let (p, n) = find_surrounding(&a.keyframes, new_time);
             (p.clone(), n.clone())
         };
@@ -70,7 +76,7 @@ pub fn animation_system(world: &mut World, dt: f32, entity_buf: &mut Vec<EntityI
     }
 }
 
-fn find_surrounding<'a>(kfs: &'a [Keyframe], time: f32) -> (&'a Keyframe, &'a Keyframe) {
+fn find_surrounding(kfs: &[Keyframe], time: f32) -> (&Keyframe, &Keyframe) {
     let last = kfs.len() - 1;
     if time <= kfs[0].time {
         return (&kfs[0], &kfs[1]);

@@ -275,10 +275,21 @@ fn extract_animations(
     skin_data: &[SkinData],
 ) -> Vec<AnimationClip> {
     let mut clips = Vec::new();
+    let anim_count = document.animations().count();
+    if anim_count == 0 {
+        log::debug!("[glTF:Anim] No animations in document");
+        return clips;
+    }
+    log::info!("[glTF:Anim] Extracting {} animation(s)", anim_count);
 
     for animation in document.animations() {
+        let anim_name = animation.name().unwrap_or("unnamed");
+        let channel_count = animation.channels().count();
+        log::debug!("[glTF:Anim] Processing '{}': {} channels", anim_name, channel_count);
+
         let mut channels = Vec::new();
         let mut max_time: f32 = 0.0;
+        let mut unmapped = 0u32;
 
         for channel in animation.channels() {
             let target = channel.target();
@@ -291,7 +302,10 @@ fn extract_animations(
 
             let bone_idx = match bone_idx {
                 Some(bi) => bi,
-                None => continue, // Node not in any skeleton — skip
+                None => {
+                    unmapped += 1;
+                    continue;
+                }
             };
 
             let property = match target.property() {
@@ -319,13 +333,13 @@ fn extract_animations(
             let values: Vec<f32> = match reader.read_outputs() {
                 Some(outputs) => match outputs {
                     gltf::animation::util::ReadOutputs::Translations(iter) => {
-                        iter.flat_map(|v| v).collect()
+                        iter.flatten().collect()
                     }
                     gltf::animation::util::ReadOutputs::Rotations(iter) => {
-                        iter.into_f32().flat_map(|v| v).collect()
+                        iter.into_f32().flatten().collect()
                     }
                     gltf::animation::util::ReadOutputs::Scales(iter) => {
-                        iter.flat_map(|v| v).collect()
+                        iter.flatten().collect()
                     }
                     _ => continue,
                 },
@@ -341,10 +355,15 @@ fn extract_animations(
             });
         }
 
+        if unmapped > 0 {
+            log::debug!("[glTF:Anim] '{}': {} channel targets not in any skeleton", anim_name, unmapped);
+        }
         if channels.is_empty() {
+            log::warn!("[glTF:Anim] '{}': 0 usable channels after bone mapping", anim_name);
             continue;
         }
 
+        log::info!("[glTF:Anim] '{}': {} channels, {:.2}s duration", anim_name, channels.len(), max_time);
         clips.push(AnimationClip {
             name: animation.name().unwrap_or("Animation").to_string(),
             duration: max_time,
@@ -361,8 +380,15 @@ pub fn load_gltf(path: impl AsRef<Path>) -> Result<GltfScene> {
     let path = path.as_ref();
     let path_str = path.to_string_lossy();
 
+    log::info!("[glTF] Loading file: {}", path_str);
+    let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    log::debug!("[glTF] File size: {} bytes ({:.1} MB)", file_size, file_size as f64 / (1024.0 * 1024.0));
+
+    let parse_start = std::time::Instant::now();
     let (document, buffers, images) =
         gltf::import(path).with_context(|| format!("Failed to import glTF: {}", path_str))?;
+    log::debug!("[glTF] Parsed in {:.1}ms — {} buffers, {} images",
+        parse_start.elapsed().as_secs_f64() * 1000.0, buffers.len(), images.len());
 
     let textures = extract_textures(&images, &path_str);
 
@@ -389,10 +415,22 @@ pub fn load_gltf(path: impl AsRef<Path>) -> Result<GltfScene> {
 
     // Extract skins → skeletons + node_to_joint mappings
     let parent_map = build_parent_map(&document);
+    let skin_count = document.skins().count();
+    log::debug!("[glTF] Found {} skin(s), {} scene(s), {} animation(s)",
+        skin_count, document.scenes().count(), document.animations().count());
     let skin_data: Vec<SkinData> = document
         .skins()
-        .map(|skin| extract_skin(&skin, &buffers, &parent_map))
+        .enumerate()
+        .map(|(i, skin)| {
+            let sd = extract_skin(&skin, &buffers, &parent_map);
+            log::debug!("[glTF:Skin] Skin {} '{}': {} bones, {} node-to-joint mappings",
+                i, sd.skeleton.name, sd.skeleton.bones.len(), sd.node_to_joint.len());
+            sd
+        })
         .collect();
+    if skin_data.is_empty() {
+        log::debug!("[glTF] No skins found — file has no skeletal data");
+    }
 
     // Walk the scene graph (flatten hierarchy)
     for gltf_scene in document.scenes() {
@@ -470,6 +508,8 @@ fn visit_node(
                     if let Some((vertices, indices)) =
                         extract_skinned_primitive(&primitive, buffers)
                     {
+                        log::debug!("[glTF:Mesh] '{}' → skinned ({} verts, {} idx, skin={})",
+                            display_name, vertices.len(), indices.len(), si);
                         scene.skinned_meshes.push(GltfLoadedSkinnedMesh {
                             store_name,
                             display_name,
@@ -481,6 +521,7 @@ fn visit_node(
                         });
                         continue;
                     }
+                    log::debug!("[glTF:Mesh] '{}': has skin but missing JOINTS_0, falling back to static mesh", display_name);
                     // Fallthrough: JOINTS_0 missing → treat as normal mesh
                 }
             }

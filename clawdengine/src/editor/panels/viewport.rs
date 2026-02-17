@@ -24,8 +24,11 @@ impl<'a> EditorTabViewer<'a> {
             ui.id().with("viewport_drop"),
             egui::Sense::hover(),
         );
-        if let Some(payload) = drop_resp.dnd_release_payload::<String>() {
-            self.editor_ctx.pending_load_asset = Some((*payload).clone());
+        if let Some(payload) = drop_resp.dnd_release_payload::<Vec<String>>() {
+            // Load the first asset from the selection (viewport accepts one model at a time)
+            if let Some(first) = payload.first() {
+                self.editor_ctx.pending_load_asset = Some(first.clone());
+            }
             // Store cursor position relative to viewport for spawn placement
             if let Some(pointer) = ui.ctx().pointer_latest_pos() {
                 let vp = self.editor_ctx.viewport_rect;
@@ -209,8 +212,9 @@ impl<'a> EditorTabViewer<'a> {
                                     .strong()
                                     .size(14.0),
                             );
+                            let drawn = ec.entity_count as u32 - ec.culled_entities;
                             ui.label(
-                                egui::RichText::new(format!("{} entities  \u{2022}  {} draws  \u{2022}  {} tris", ec.entity_count, ec.draw_calls, ec.visible_triangles))
+                                egui::RichText::new(format!("{}/{} drawn  \u{2022}  {} draws  \u{2022}  {} tris", drawn, ec.entity_count, ec.draw_calls, ec.visible_triangles))
                                     .color(Color32::from_rgb(0xA6, 0xAD, 0xC8))
                                     .monospace()
                                     .size(11.0),

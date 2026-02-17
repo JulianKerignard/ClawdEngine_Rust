@@ -48,7 +48,7 @@ impl AudioSystem {
 
             if audio.is_playing {
                 let path_changed = self.paths.get(&idx)
-                    .map_or(true, |p| audio.audio_path.as_deref() != Some(p.as_str()));
+                    .is_none_or(|p| audio.audio_path.as_deref() != Some(p.as_str()));
 
                 if !self.handles.contains_key(&idx) || path_changed {
                     // Stop old handle

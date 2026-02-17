@@ -30,7 +30,9 @@ pub fn process_pending_operations(
     component_ops::process_texture_assign(world, editor_ctx, scene, gpu);
     component_ops::process_normal_map_assign(world, editor_ctx, scene, gpu);
     component_ops::process_add_component(world, editor_ctx);
+    asset_ops::process_save_prefab(world, editor_ctx, scene, scripts);
     asset_ops::process_load_asset(world, editor_ctx, scene, gpu);
+    asset_ops::process_load_prefab(world, editor_ctx, scene, gpu, scripts);
     super::asset_loader::tick_loading(world, editor_ctx, scene, gpu);
     asset_ops::process_delete_asset(editor_ctx);
     asset_ops::process_create_folder(editor_ctx);

@@ -39,6 +39,7 @@ fn collect_scales(editor_ctx: &EditorContext, world: &World) -> Vec<(crate::core
 }
 
 /// Handle left-click: attempt gizmo pick first, then fall back to entity pick.
+#[allow(clippy::too_many_arguments)]
 pub fn handle_gizmo_press(
     editor_ctx: &mut EditorContext,
     world: &World,

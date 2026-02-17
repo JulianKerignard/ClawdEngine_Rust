@@ -13,7 +13,7 @@ impl<'a> EditorTabViewer<'a> {
             return;
         }
         let remove_mat = component_section(ui, "material", "M", "Material", MAT_ACCENT, true, |ui| {
-            let m = self.world.get_material_mut(eid).unwrap();
+            let Some(m) = self.world.get_material_mut(eid) else { return; };
 
             ui.label(egui::RichText::new("Surface").color(theme::TEXT_DISABLED).small());
             property_row(ui, "Color", |ui| {

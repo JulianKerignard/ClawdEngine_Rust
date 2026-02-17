@@ -54,6 +54,7 @@ impl GpuContext {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn execute_main_pass(
         &self,
         encoder: &mut wgpu::CommandEncoder,

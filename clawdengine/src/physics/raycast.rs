@@ -1,5 +1,6 @@
 use glam::Vec3;
 use crate::core::{ColliderShape, EntityId, World};
+use crate::renderer::mesh::MeshStore;
 
 /// Result of a raycast hit.
 #[derive(Clone, Debug)]
@@ -174,7 +175,7 @@ pub fn raycast(
                         capsule_normal_at(point, ca, cb)
                     }
                 };
-                if closest.as_ref().map_or(true, |c| t < c.distance) {
+                if closest.as_ref().is_none_or(|c| t < c.distance) {
                     closest = Some(RayHit { entity: eid, point, normal, distance: t });
                 }
             }
@@ -235,6 +236,99 @@ pub fn raycast_all(
                         capsule_normal_at(point, ca, cb)
                     }
                 };
+                hits.push(RayHit { entity: eid, point, normal, distance: t });
+            }
+        }
+    }
+
+    hits.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap_or(std::cmp::Ordering::Equal));
+    hits
+}
+
+/// Cast a ray against the world-space AABBs of all visible MeshRenderer entities.
+/// This catches entities **without** a Collider component.
+/// Returns the closest hit.
+pub fn raycast_mesh_aabb(
+    world: &World,
+    mesh_store: &MeshStore,
+    origin: Vec3,
+    direction: Vec3,
+    max_distance: f32,
+) -> Option<RayHit> {
+    let dir = direction.normalize();
+    let mut closest: Option<RayHit> = None;
+
+    for eid in world.iter_entities() {
+        let mr = match world.get_mesh_renderer(eid) {
+            Some(mr) if mr.visible => mr,
+            _ => continue,
+        };
+        let mesh_id = match mr.mesh_id {
+            Some(id) => id,
+            None => continue,
+        };
+        let aabb = match mesh_store.get_aabb(mesh_id) {
+            Some(a) => a,
+            None => continue,
+        };
+        let transform = match world.get_transform(eid) {
+            Some(t) => *t,
+            None => continue,
+        };
+        let wt = world.get_world_transform(eid).unwrap_or(transform);
+        let model = glam::Mat4::from_scale_rotation_translation(wt.scale, wt.rotation, wt.position);
+        let (wmin, wmax) = aabb.transformed(model);
+
+        if let Some(t) = ray_aabb(origin, dir, wmin, wmax) {
+            if t <= max_distance {
+                let point = origin + dir * t;
+                let normal = aabb_normal_at(point, wmin, wmax);
+                if closest.as_ref().is_none_or(|c| t < c.distance) {
+                    closest = Some(RayHit { entity: eid, point, normal, distance: t });
+                }
+            }
+        }
+    }
+
+    closest
+}
+
+/// Cast a ray against all visible MeshRenderer AABBs. Returns all hits sorted by distance.
+pub fn raycast_mesh_aabb_all(
+    world: &World,
+    mesh_store: &MeshStore,
+    origin: Vec3,
+    direction: Vec3,
+    max_distance: f32,
+) -> Vec<RayHit> {
+    let dir = direction.normalize();
+    let mut hits = Vec::new();
+
+    for eid in world.iter_entities() {
+        let mr = match world.get_mesh_renderer(eid) {
+            Some(mr) if mr.visible => mr,
+            _ => continue,
+        };
+        let mesh_id = match mr.mesh_id {
+            Some(id) => id,
+            None => continue,
+        };
+        let aabb = match mesh_store.get_aabb(mesh_id) {
+            Some(a) => a,
+            None => continue,
+        };
+        let transform = match world.get_transform(eid) {
+            Some(t) => *t,
+            None => continue,
+        };
+        let wt = world.get_world_transform(eid).unwrap_or(transform);
+        let model = glam::Mat4::from_scale_rotation_translation(wt.scale, wt.rotation, wt.position);
+        let (wmin, wmax) = aabb.transformed(model);
+
+        if let Some(t) = ray_aabb(origin, dir, wmin, wmax) {
+            if t <= max_distance {
+                let point = origin + dir * t;
+                let normal = aabb_normal_at(point, wmin, wmax);
                 hits.push(RayHit { entity: eid, point, normal, distance: t });
             }
         }

@@ -251,6 +251,7 @@ impl LineBatch {
     }
 
     /// Draw a circle arc as thick billboard segments.
+    #[allow(clippy::too_many_arguments)]
     pub fn push_circle_arc(
         &mut self,
         center: [f32; 3],

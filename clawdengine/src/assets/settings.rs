@@ -136,7 +136,7 @@ impl Default for BuildSettings {
 
 // ---- Main struct ----
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct ProjectSettings {
     pub rendering: RenderingSettings,
@@ -146,20 +146,6 @@ pub struct ProjectSettings {
     pub grid: GridSettings,
     pub physics: PhysicsSettings,
     pub build: BuildSettings,
-}
-
-impl Default for ProjectSettings {
-    fn default() -> Self {
-        Self {
-            rendering: RenderingSettings::default(),
-            shadows: ShadowSettings::default(),
-            lighting: LightingSettings::default(),
-            camera: CameraSettings::default(),
-            grid: GridSettings::default(),
-            physics: PhysicsSettings::default(),
-            build: BuildSettings::default(),
-        }
-    }
 }
 
 // ---- Save / Load ----

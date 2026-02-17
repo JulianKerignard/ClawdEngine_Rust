@@ -10,7 +10,7 @@ impl<'a> EditorTabViewer<'a> {
         }
         const AUDIO_ACCENT: Color32 = Color32::from_rgb(0xF9, 0xE2, 0xAF);
         let remove_audio = component_section(ui, "audio", "A", "AudioSource", AUDIO_ACCENT, true, |ui| {
-            let audio = self.world.get_audio_source_mut(eid).unwrap();
+            let Some(audio) = self.world.get_audio_source_mut(eid) else { return; };
 
             property_row(ui, "File", |ui| {
                 let mut remove = false;

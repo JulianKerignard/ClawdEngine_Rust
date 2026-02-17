@@ -1,3 +1,4 @@
+pub mod frustum;
 pub mod gpu_context;
 pub mod mesh;
 pub mod camera;
@@ -29,3 +30,5 @@ pub use texture_store::TextureStore;
 pub use skybox::SkyboxPipeline;
 #[allow(unused_imports)]
 pub use viewport::ViewportTexture;
+#[allow(unused_imports)]
+pub use frustum::Frustum;

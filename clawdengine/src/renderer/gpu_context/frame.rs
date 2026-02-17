@@ -1,6 +1,7 @@
 use winit::window::Window;
 
 use crate::core::{EntityId, World};
+use crate::renderer::frustum::Frustum;
 use crate::renderer::scene_helpers;
 
 use super::{GpuContext, SceneRenderer};
@@ -23,16 +24,16 @@ impl GpuContext {
         render_game: bool,
         settings: &crate::assets::settings::ProjectSettings,
         mut ui_fn: impl FnMut(&egui::Context, &mut World, &SceneRenderer),
-    ) -> (u32, u32) {
+    ) -> (u32, u32, u32) {
         let output = match self.surface.get_current_texture() {
             Ok(tex) => tex,
             Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                 self.surface.configure(&self.device, &self.config);
-                return (0, 0);
+                return (0, 0, 0);
             }
             Err(e) => {
                 log::error!("Surface error: {e}");
-                return (0, 0);
+                return (0, 0, 0);
             }
         };
 
@@ -47,7 +48,7 @@ impl GpuContext {
             });
 
         // ---- Pass 1: 3D scene -> viewport texture ----
-        let (dc, tri) = self.render_3d_pass(
+        let (dc, tri, culled) = self.render_3d_pass(
             &mut encoder, scene, world, selected_entity, gizmo_pos,
             active_tool, gizmo_drag_axis, gizmo_hover_axis, show_grid, settings,
         );
@@ -124,9 +125,10 @@ impl GpuContext {
             self.egui_renderer.free_texture(id);
         }
 
-        (dc, tri)
+        (dc, tri, culled)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn render_3d_pass(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -139,7 +141,7 @@ impl GpuContext {
         gizmo_hover_axis: Option<crate::editor::context::GizmoAxis>,
         show_grid: bool,
         settings: &crate::assets::settings::ProjectSettings,
-    ) -> (u32, u32) {
+    ) -> (u32, u32, u32) {
         let cam_uniforms = scene.camera.uniforms(scene.viewport.aspect_ratio());
         self.queue.write_buffer(
             &scene.camera_buffer,
@@ -188,10 +190,12 @@ impl GpuContext {
 
         scene.line_batch.upload(&self.device, &self.queue);
 
-        let renderables = self.prepare_entity_data(scene, world, selected_entity);
+        let vp_mat = glam::Mat4::from_cols_array_2d(&cam_uniforms.view_proj);
+        let frustum = Frustum::from_view_proj(vp_mat);
+        let (renderables, culled) = self.prepare_entity_data(scene, world, selected_entity, &frustum);
 
         self.execute_shadow_pass(encoder, scene, &renderables);
-        self.execute_main_pass(
+        let (dc, tri) = self.execute_main_pass(
             encoder, scene,
             &scene.camera_bind_group,
             &scene.viewport.msaa_color_view,
@@ -199,7 +203,8 @@ impl GpuContext {
             &scene.viewport.depth_view,
             &renderables,
             true,
-        )
+        );
+        (dc, tri, culled)
     }
 
     pub fn render_game_view(
@@ -225,7 +230,9 @@ impl GpuContext {
             bytemuck::cast_slice(&[cam_uniforms]),
         );
 
-        let renderables = self.prepare_entity_data(scene, world, None);
+        let vp_mat = glam::Mat4::from_cols_array_2d(&cam_uniforms.view_proj);
+        let frustum = Frustum::from_view_proj(vp_mat);
+        let (renderables, _culled) = self.prepare_entity_data(scene, world, None, &frustum);
         self.execute_shadow_pass(encoder, scene, &renderables);
 
         // Re-borrow game_viewport immutably after prepare_entity_data is done

@@ -18,27 +18,37 @@ impl App {
             return;
         }
 
+        let init_start = std::time::Instant::now();
+        log::info!("[Init] Engine initialization starting...");
+
         let window_title = self.player_game_name.as_deref().unwrap_or("ClawdEngine");
+        log::debug!("[Init] Creating window '{}' (1280x720)", window_title);
         let attrs = Window::default_attributes()
             .with_title(window_title)
             .with_inner_size(winit::dpi::LogicalSize::new(1280, 720))
             .with_min_inner_size(winit::dpi::LogicalSize::new(1024, 600));
         let window =
             Arc::new(event_loop.create_window(attrs).expect("Failed to create window"));
+        log::debug!("[Init] Window created (scale_factor={:.2})", window.scale_factor());
 
         // macOS workaround (wgpu #5722): request_redraw BEFORE create_surface
         window.request_redraw();
 
         // Initialize asset path resolution (detects .app bundle vs dev mode)
         assets::paths::init();
+        log::debug!("[Init] Asset paths initialized (bundled={})", assets::paths::is_bundled());
 
         // In .app bundle: set CWD to Resources so relative asset paths work
         if assets::paths::is_bundled() {
             let _ = std::env::set_current_dir(assets::paths::base_dir());
         }
 
+        log::debug!("[Init] Creating GPU context (wgpu)...");
+        let gpu_start = std::time::Instant::now();
         let mut gpu = GpuContext::new(window.clone());
+        log::info!("[Init] GPU context ready in {:.0}ms", gpu_start.elapsed().as_secs_f64() * 1000.0);
 
+        log::debug!("[Init] Initializing egui state...");
         let egui_state = egui_winit::State::new(
             self.egui_ctx.clone(),
             egui::ViewportId::ROOT,
@@ -48,12 +58,16 @@ impl App {
             None,
         );
 
+        log::debug!("[Init] Creating SceneRenderer (pipelines, shadow maps, skybox)...");
+        let scene_start = std::time::Instant::now();
         let mut scene = SceneRenderer::new(&mut gpu);
+        log::debug!("[Init] SceneRenderer ready in {:.0}ms", scene_start.elapsed().as_secs_f64() * 1000.0);
 
         // Load built-in procedural meshes
         let mesh_ids = Self::load_builtin_meshes(&mut scene, &gpu);
 
-        log::info!("Loaded {} built-in meshes", scene.mesh_store.len());
+        log::info!("[Init] Loaded {} built-in meshes (cube={}, sphere={}, plane={}, cylinder={}, capsule={}, cone={})",
+            scene.mesh_store.len(), mesh_ids.0, mesh_ids.1, mesh_ids.2, mesh_ids.3, mesh_ids.4, mesh_ids.5);
 
         self.window = Some(window);
         self.gpu = Some(gpu);
@@ -68,14 +82,18 @@ impl App {
         editor::theme::apply_theme(&self.egui_ctx);
 
         self.register_scripts();
+        if let Some(ec) = &self.editor_ctx {
+            log::debug!("[Init] Registered {} scripts", ec.script_registry.len());
+        }
         self.init_audio();
         self.detect_player_mode();
         self.load_player_scene_or_assets();
 
+        let total_ms = init_start.elapsed().as_secs_f64() * 1000.0;
         if self.player_scene.is_some() {
-            log::info!("Game player started");
+            log::info!("[Init] Engine ready in {:.0}ms — Game player mode", total_ms);
         } else {
-            log::info!("Window, GPU, and egui initialized — showing Project Hub");
+            log::info!("[Init] Engine ready in {:.0}ms — Editor mode (Project Hub)", total_ms);
         }
     }
 

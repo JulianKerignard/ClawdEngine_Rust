@@ -14,7 +14,7 @@ impl<'a> EditorTabViewer<'a> {
         let col_g = theme::AXIS_Y;
         let col_b = theme::AXIS_Z;
         let remove_rb = component_section(ui, "rigid_body", "P", "RigidBody", RB_ACCENT, true, |ui| {
-            let rb = self.world.get_rigid_body_mut(eid).unwrap();
+            let Some(rb) = self.world.get_rigid_body_mut(eid) else { return; };
             property_row(ui, "Mass", |ui| {
                 ui.add(DragValue::new(&mut rb.mass).speed(0.1).range(0.01..=f32::MAX));
             });
@@ -47,7 +47,7 @@ impl<'a> EditorTabViewer<'a> {
             return;
         }
         let remove_col = component_section(ui, "collider", "C", "Collider", theme::ACCENT, true, |ui| {
-            let col = self.world.get_collider_mut(eid).unwrap();
+            let Some(col) = self.world.get_collider_mut(eid) else { return; };
             property_row(ui, "Shape", |ui| {
                 egui::ComboBox::from_id_salt("collider_shape")
                     .selected_text(match col.shape {

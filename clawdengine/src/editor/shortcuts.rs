@@ -59,10 +59,10 @@ pub fn handle_shortcuts(
     }
 
     // Delete all selected entities
-    if input.is_key_pressed(KeyCode::Delete) || input.is_key_pressed(KeyCode::Backspace) {
-        if !editor_ctx.selected_entities.is_empty() {
-            editor_ctx.pending_delete = editor_ctx.selected_entities.clone();
-        }
+    if (input.is_key_pressed(KeyCode::Delete) || input.is_key_pressed(KeyCode::Backspace))
+        && !editor_ctx.selected_entities.is_empty()
+    {
+        editor_ctx.pending_delete = editor_ctx.selected_entities.clone();
     }
 
     // Deselect all
@@ -96,10 +96,10 @@ pub fn handle_shortcuts(
     }
 
     // Cmd+D / Ctrl+D → duplicate selected entities
-    if cmd_held && input.is_char_pressed('d') {
-        if !editor_ctx.selected_entities.is_empty() {
-            editor_ctx.pending_duplicate = editor_ctx.selected_entities.clone();
-        }
+    if cmd_held && input.is_char_pressed('d')
+        && !editor_ctx.selected_entities.is_empty()
+    {
+        editor_ctx.pending_duplicate = editor_ctx.selected_entities.clone();
     }
 
     // F → focus on selected entity (return true so caller can handle camera)

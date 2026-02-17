@@ -547,6 +547,7 @@ fn action_button(ui: &mut egui::Ui, label: &str, width: f32) -> bool {
 
 // ---- Project Card ----
 
+#[allow(clippy::too_many_arguments)]
 fn project_card(
     ui: &mut egui::Ui,
     name: &str,

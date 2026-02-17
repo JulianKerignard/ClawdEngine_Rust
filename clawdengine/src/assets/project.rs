@@ -100,6 +100,7 @@ pub fn create_project(parent_dir: &str, name: &str) -> Result<String> {
     std::fs::create_dir_all(project_dir.join("meshes"))?;
     std::fs::create_dir_all(project_dir.join("textures"))?;
     std::fs::create_dir_all(project_dir.join("audio"))?;
+    std::fs::create_dir_all(project_dir.join("animations"))?;
 
     let now = Local::now().format("%Y-%m-%dT%H:%M:%S").to_string();
     let manifest = ProjectManifest {

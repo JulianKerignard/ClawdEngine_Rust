@@ -6,7 +6,7 @@ pub mod gizmo_interaction;
 pub mod header;
 pub mod icons;
 pub mod layout;
-mod operations;
+pub(crate) mod operations;
 mod panels;
 pub mod pending_ops;
 pub mod project_hub;

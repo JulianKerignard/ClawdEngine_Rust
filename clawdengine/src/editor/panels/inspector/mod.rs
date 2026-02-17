@@ -1,4 +1,5 @@
 mod animation_sections;
+mod asset_inspector;
 mod audio_section;
 mod material_section;
 mod physics_sections;
@@ -39,6 +40,11 @@ impl<'a> EditorTabViewer<'a> {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     self.inspector_bone(ui);
                 });
+                return;
+            }
+            // Show asset inspector if asset file(s) selected in the browser
+            if !self.editor_ctx.selected_assets.is_empty() {
+                self.show_asset_inspector(ui);
                 return;
             }
             ui.vertical_centered(|ui| {
@@ -119,7 +125,7 @@ impl<'a> EditorTabViewer<'a> {
             let col_g = theme::AXIS_Y;
             let col_b = theme::AXIS_Z;
             component_section(ui, "transform", "T", "Transform", theme::ACCENT, false, |ui| {
-                let t = self.world.get_transform_mut(eid).unwrap();
+                let Some(t) = self.world.get_transform_mut(eid) else { return; };
                 ui.label(egui::RichText::new("Position").color(theme::TEXT_DISABLED).small());
                 ui.horizontal(|ui| {
                     axis_drag(ui, "X", col_r, &mut t.position.x, 0.05);
@@ -157,7 +163,7 @@ impl<'a> EditorTabViewer<'a> {
         // ---- Light ----
         if self.world.get_light(eid).is_some() {
             let remove_light = component_section(ui, "light", "L", "Light", theme::WARNING, true, |ui| {
-                let l = self.world.get_light_mut(eid).unwrap();
+                let Some(l) = self.world.get_light_mut(eid) else { return; };
                 property_row(ui, "Kind", |ui| {
                     egui::ComboBox::from_id_salt("light_kind")
                         .selected_text(format!("{:?}", l.kind))
@@ -211,7 +217,7 @@ impl<'a> EditorTabViewer<'a> {
         // ---- MeshRenderer ----
         if self.world.get_mesh_renderer(eid).is_some() {
             let remove_mr = component_section(ui, "mesh_renderer", "R", "MeshRenderer", MESH_ACCENT, true, |ui| {
-                let mr = self.world.get_mesh_renderer_mut(eid).unwrap();
+                let Some(mr) = self.world.get_mesh_renderer_mut(eid) else { return; };
                 property_row(ui, "Visible", |ui| {
                     ui.checkbox(&mut mr.visible, "");
                 });
@@ -234,7 +240,7 @@ impl<'a> EditorTabViewer<'a> {
         if self.world.get_camera(eid).is_some() {
             const CAM_ACCENT: Color32 = Color32::from_rgb(0x89, 0xDC, 0xEB);
             let remove_cam = component_section(ui, "camera", "Cam", "Camera", CAM_ACCENT, true, |ui| {
-                let cam = self.world.get_camera_mut(eid).unwrap();
+                let Some(cam) = self.world.get_camera_mut(eid) else { return; };
                 property_row(ui, "FOV (deg)", |ui| {
                     let mut fov_deg = cam.fov_y.to_degrees();
                     if ui.add(DragValue::new(&mut fov_deg).speed(0.5).range(10.0..=160.0)).changed() {
@@ -261,7 +267,7 @@ impl<'a> EditorTabViewer<'a> {
         if self.world.get_audio_listener(eid).is_some() {
             const LISTENER_ACCENT: Color32 = Color32::from_rgb(0xCB, 0xA6, 0xF7);
             let remove_al = component_section(ui, "audio_listener", "AL", "AudioListener", LISTENER_ACCENT, true, |ui| {
-                let al = self.world.get_audio_listener_mut(eid).unwrap();
+                let Some(al) = self.world.get_audio_listener_mut(eid) else { return; };
                 property_row(ui, "Active", |ui| {
                     ui.checkbox(&mut al.active, "");
                 });
@@ -279,7 +285,7 @@ impl<'a> EditorTabViewer<'a> {
         if self.world.get_canvas(eid).is_some() {
             const CANVAS_ACCENT: Color32 = Color32::from_rgb(0xCB, 0xA6, 0xF7);
             let remove_cv = component_section(ui, "canvas", "Cv", "Canvas", CANVAS_ACCENT, true, |ui| {
-                let cv = self.world.get_canvas_mut(eid).unwrap();
+                let Some(cv) = self.world.get_canvas_mut(eid) else { return; };
                 property_row(ui, "Width", |ui| {
                     ui.add(DragValue::new(&mut cv.width).speed(1.0).range(100.0..=3840.0));
                 });
@@ -304,6 +310,7 @@ impl<'a> EditorTabViewer<'a> {
         self.inspector_ui_element(ui, eid);
         self.inspector_animator(ui, eid);
         self.inspector_skeletal_animator(ui, eid);
+        self.inspector_animator_controller(ui, eid);
         self.inspector_bone(ui);
         self.inspector_scripts(ui, eid);
         self.inspector_add_component(ui, eid);

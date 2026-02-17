@@ -37,6 +37,7 @@ struct App {
     last_frame_time: Instant,
     last_draw_calls: u32,
     last_triangles: u32,
+    last_culled: u32,
     log_buffer: editor::console::LogBuffer,
     play_time: f32,
     player_scene: Option<String>,
@@ -63,6 +64,7 @@ impl App {
             last_frame_time: Instant::now(),
             last_draw_calls: 0,
             last_triangles: 0,
+            last_culled: 0,
             log_buffer: log_buffer.clone(),
             play_time: 0.0,
             player_scene: None,
@@ -97,10 +99,11 @@ impl App {
             ec.entity_count = self.world.entity_count();
             ec.draw_calls = self.last_draw_calls;
             ec.visible_triangles = self.last_triangles;
+            ec.culled_entities = self.last_culled;
         }
 
         let is_hub = self.editor_ctx.as_ref()
-            .map_or(false, |ec| ec.screen == editor::context::AppScreen::Hub);
+            .is_some_and(|ec| ec.screen == editor::context::AppScreen::Hub);
 
         if !is_hub {
             let wants_kb = self.egui_ctx.wants_keyboard_input();
@@ -139,9 +142,10 @@ impl App {
             }
         }
 
-        let (frame_dc, frame_tri) = self.render_frame();
+        let (frame_dc, frame_tri, frame_culled) = self.render_frame();
         self.last_draw_calls = frame_dc;
         self.last_triangles = frame_tri;
+        self.last_culled = frame_culled;
 
         // Process pending entity operations
         if let (Some(editor_ctx), Some(scene), Some(gpu)) =
@@ -171,7 +175,7 @@ impl App {
         }
     }
 
-    fn render_frame(&mut self) -> (u32, u32) {
+    fn render_frame(&mut self) -> (u32, u32, u32) {
         let selected = self.editor_ctx.as_ref().and_then(|ec| ec.primary_selection());
         let gizmo_pos = self.editor_ctx.as_ref().and_then(|ec| ec.selection_center(&self.world));
 
@@ -181,11 +185,11 @@ impl App {
             &mut self.egui_state,
             &mut self.scene,
         ) else {
-            return (0, 0);
+            return (0, 0, 0);
         };
 
         let game_view_was_visible = self.editor_ctx.as_ref()
-            .map_or(false, |ec| ec.game_view_visible);
+            .is_some_and(|ec| ec.game_view_visible);
         let game_vp_tex = if game_view_was_visible {
             Some(scene.ensure_game_viewport(&gpu.device, &mut gpu.egui_renderer))
         } else {
@@ -213,8 +217,8 @@ impl App {
         let editor_ctx = &mut self.editor_ctx;
         let scripts = &mut self.scripts;
         let is_hub = editor_ctx.as_ref()
-            .map_or(false, |ec| ec.screen == editor::context::AppScreen::Hub);
-        let show_grid = if is_hub { false } else { editor_ctx.as_ref().map_or(true, |ec| ec.show_grid) };
+            .is_some_and(|ec| ec.screen == editor::context::AppScreen::Hub);
+        let show_grid = if is_hub { false } else { editor_ctx.as_ref().is_none_or(|ec| ec.show_grid) };
         let render_game = if is_hub { false } else { game_view_was_visible };
 
         let settings = editor_ctx.as_ref()

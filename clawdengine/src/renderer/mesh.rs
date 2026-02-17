@@ -99,6 +99,11 @@ impl MeshStore {
         });
         let aabb = MeshAABB::from_vertices(vertices);
         let id = self.meshes.len();
+        let vb_size = std::mem::size_of_val(vertices);
+        let ib_size = std::mem::size_of_val(indices);
+        log::debug!("[MeshStore] Uploaded static mesh '{}' → id={}, {} verts, {} tris, vbuf={} bytes, ibuf={} bytes, AABB=[{:.2},{:.2},{:.2}]→[{:.2},{:.2},{:.2}]",
+            name, id, vertices.len(), indices.len() / 3, vb_size, ib_size,
+            aabb.min.x, aabb.min.y, aabb.min.z, aabb.max.x, aabb.max.y, aabb.max.z);
         self.meshes.push(GpuMesh {
             vertex_buffer,
             index_buffer,
@@ -140,6 +145,26 @@ impl MeshStore {
             MeshAABB { min, max }
         };
         let id = self.meshes.len();
+        let vb_size = std::mem::size_of_val(vertices);
+        let ib_size = std::mem::size_of_val(indices);
+        log::debug!("[MeshStore] Uploaded SKINNED mesh '{}' → id={}, {} verts (72B each), {} tris, vbuf={} bytes, ibuf={} bytes",
+            name, id, vertices.len(), indices.len() / 3, vb_size, ib_size);
+        // Validate joint indices in debug
+        if log::log_enabled!(log::Level::Trace) {
+            let mut max_joint: u16 = 0;
+            let mut zero_weight_count = 0u32;
+            for v in vertices {
+                for &ji in &v.joint_indices {
+                    max_joint = max_joint.max(ji);
+                }
+                let w_sum: f32 = v.joint_weights.iter().sum();
+                if w_sum < 0.001 {
+                    zero_weight_count += 1;
+                }
+            }
+            log::trace!("[MeshStore] '{}': max_joint_index={}, zero_weight_verts={}",
+                name, max_joint, zero_weight_count);
+        }
         self.meshes.push(GpuMesh {
             vertex_buffer,
             index_buffer,

@@ -9,7 +9,7 @@ impl<'a> EditorTabViewer<'a> {
         }
         const UI_ACCENT: Color32 = Color32::from_rgb(0xCB, 0xA6, 0xF7);
         let remove_ui = component_section(ui, "ui_element", "U", "UiElement", UI_ACCENT, true, |ui| {
-            let el = self.world.get_ui_element_mut(eid).unwrap();
+            let Some(el) = self.world.get_ui_element_mut(eid) else { return; };
 
             property_row(ui, "Kind", |ui| {
                 ComboBox::from_id_salt("ui_kind")

@@ -90,8 +90,12 @@ pub fn start_background_load(
     let (tx, rx) = mpsc::channel();
     let path = asset_path.to_string();
 
+    log::info!("[AssetLoader] Starting background load: {}", asset_path);
     std::thread::spawn(move || {
+        let load_start = std::time::Instant::now();
         let result = (|| -> Result<PreparedGltfAsset, String> {
+            let loader_type = if path.ends_with(".fbx") { "FBX" } else { "glTF" };
+            log::debug!("[AssetLoader:BG] Parsing {} file: {}", loader_type, path);
             let gltf_scene = if path.ends_with(".fbx") {
                 crate::assets::fbx_loader::load_fbx(&path).map_err(|e| e.to_string())?
             } else {
@@ -104,6 +108,7 @@ pub fn start_background_load(
                 .map(precompute_mipmaps)
                 .collect();
 
+            log::debug!("[AssetLoader:BG] Precomputed {} texture mipmaps", textures.len());
             Ok(PreparedGltfAsset {
                 meshes: gltf_scene.meshes,
                 textures,
@@ -114,6 +119,12 @@ pub fn start_background_load(
             })
         })();
 
+        match &result {
+            Ok(asset) => log::info!("[AssetLoader:BG] Prepared in {:.0}ms: {} meshes, {} skinned, {} skels, {} anims",
+                load_start.elapsed().as_secs_f64() * 1000.0,
+                asset.meshes.len(), asset.skinned_meshes.len(), asset.skeletons.len(), asset.animation_clips.len()),
+            Err(e) => log::error!("[AssetLoader:BG] Failed after {:.0}ms: {}", load_start.elapsed().as_secs_f64() * 1000.0, e),
+        }
         let _ = tx.send(result);
     });
 
@@ -136,23 +147,26 @@ pub fn tick_loading(
     match state {
         AssetLoadState::Parsing { receiver, drop_pos } => match receiver.try_recv() {
             Ok(Ok(prepared)) => {
+                log::info!("[AssetLoader] Background parse complete — transitioning to GPU upload phase");
                 ec.asset_load_state = Some(AssetLoadState::Finalizing { prepared, drop_pos });
             }
             Ok(Err(e)) => {
-                log::error!("Background glTF load failed: {}", e);
+                log::error!("[AssetLoader] Background load FAILED: {}", e);
                 ec.loading_status = None;
                 ec.save_feedback = Some((format!("Load failed: {}", e), 3.0));
             }
             Err(mpsc::TryRecvError::Empty) => {
+                // Still parsing on background thread
                 ec.asset_load_state = Some(AssetLoadState::Parsing { receiver, drop_pos });
             }
             Err(mpsc::TryRecvError::Disconnected) => {
-                log::error!("Background loader thread panicked");
+                log::error!("[AssetLoader] Background loader thread panicked or disconnected");
                 ec.loading_status = None;
             }
         },
 
         AssetLoadState::Finalizing { prepared, drop_pos } => {
+            log::debug!("[AssetLoader] Finalizing: uploading {} textures to GPU", prepared.textures.len());
             // Upload ALL textures in one frame (write_texture is async, <1ms each)
             let tex_ids: Vec<usize> = prepared
                 .textures
@@ -189,15 +203,27 @@ fn create_entities_from_prepared(
     ec.undo_stack
         .push(world.snapshot(), ec.selected_entities.clone());
 
+    // Extract sub-assets to disk (skeleton, clips, materials, textures)
+    if let Err(e) = crate::assets::extracted_assets::extract_subassets_from_prepared(prepared) {
+        log::warn!("[AssetLoader] Sub-asset extraction failed: {}", e);
+    }
+
+    log::info!("[AssetLoader] Creating entities from '{}' at position {:?}", prepared.asset_path, drop_pos);
+
     // Store skeletons first (we need IDs for SkeletalAnimator)
     let skeleton_ids: Vec<usize> = prepared
         .skeletons
         .iter()
-        .map(|skel| {
+        .enumerate()
+        .map(|(i, skel)| {
             if let Some(id) = scene.skeleton_store.find_by_name(&skel.name) {
+                log::debug!("[AssetLoader] Skeleton '{}' already in store (id={})", skel.name, id);
                 id
             } else {
-                scene.skeleton_store.add(skel.clone())
+                let id = scene.skeleton_store.add(skel.clone());
+                log::debug!("[AssetLoader] Stored skeleton {} '{}' → store id {}, {} bones",
+                    i, skel.name, id, skel.bones.len());
+                id
             }
         })
         .collect();
@@ -206,11 +232,15 @@ fn create_entities_from_prepared(
     let clip_ids: Vec<usize> = prepared
         .animation_clips
         .iter()
-        .map(|clip| {
-            scene
+        .enumerate()
+        .map(|(i, clip)| {
+            let id = scene
                 .animation_clip_store
                 .find_by_name(&clip.name)
-                .unwrap_or_else(|| scene.animation_clip_store.add(clip.clone()))
+                .unwrap_or_else(|| scene.animation_clip_store.add(clip.clone()));
+            log::debug!("[AssetLoader] Clip {} '{}' → store id {}, {:.2}s, {} channels",
+                i, clip.name, id, clip.duration, clip.channels.len());
+            id
         })
         .collect();
     let clip_names: Vec<String> = prepared
@@ -218,6 +248,8 @@ fn create_entities_from_prepared(
         .iter()
         .map(|c| c.name.clone())
         .collect();
+
+    log::debug!("[AssetLoader] Registered {} skeleton(s), {} clip(s)", skeleton_ids.len(), clip_ids.len());
 
     let total_meshes = prepared.meshes.len() + prepared.skinned_meshes.len();
 
@@ -261,13 +293,13 @@ fn create_entities_from_prepared(
         world.set_name(id, &gltf_mesh.display_name);
 
         let (scale, rotation, translation) = gltf_mesh.transform.to_scale_rotation_translation();
-        if root_id.is_some() {
+        if let Some(root) = root_id {
             // Child: local transform relative to root (root is at drop_pos)
             world.set_transform(
                 id,
                 core::Transform { position: translation, rotation, scale },
             );
-            world.set_parent(id, root_id.unwrap());
+            world.set_parent(id, root);
         } else {
             // Single mesh: absolute position
             world.set_transform(
@@ -309,13 +341,13 @@ fn create_entities_from_prepared(
         world.set_name(id, &sm.display_name);
 
         let (scale, rotation, translation) = sm.transform.to_scale_rotation_translation();
-        if root_id.is_some() {
+        if let Some(root) = root_id {
             // Child: local transform relative to root
             world.set_transform(
                 id,
                 core::Transform { position: translation, rotation, scale },
             );
-            world.set_parent(id, root_id.unwrap());
+            world.set_parent(id, root);
         } else {
             // Single mesh: absolute position
             world.set_transform(
@@ -338,6 +370,14 @@ fn create_entities_from_prepared(
         // Attach SkeletalAnimator with skeleton reference
         let skel_store_id = skeleton_ids.get(sm.skeleton_index).copied();
         let skel_name = skel_store_id.and_then(|sid| scene.skeleton_store.get_name(sid).map(|s| s.to_string()));
+        let has_clips = !clip_ids.is_empty();
+        log::info!("[AssetLoader] Attaching SkeletalAnimator to entity {:?} '{}':", id, sm.display_name);
+        log::info!("[AssetLoader]   skeleton: {:?} (store_id={:?})", skel_name, skel_store_id);
+        log::info!("[AssetLoader]   clips: {} ({:?}), auto_play={}", clip_ids.len(), clip_names, has_clips);
+        if skel_store_id.is_none() {
+            log::warn!("[AssetLoader]   WARNING: no skeleton mapped (skeleton_index={} but only {} available)",
+                sm.skeleton_index, skeleton_ids.len());
+        }
         world.set_skeletal_animator(
             id,
             SkeletalAnimator {
@@ -347,12 +387,63 @@ fn create_entities_from_prepared(
                 clip_names: clip_names.clone(),
                 active_clip: if clip_ids.is_empty() { None } else { Some(0) },
                 active_clip_name: clip_names.first().cloned(),
+                playing: has_clips,
+                loop_animation: true,
                 ..SkeletalAnimator::default()
             },
         );
 
         if first_id.is_none() {
             first_id = Some(id);
+        }
+    }
+
+    // ---- Attach components to root so they're visible in Inspector ----
+    if let Some(root) = root_id {
+        // Material from the first available mesh (skinned preferred)
+        let first_mat_src = prepared
+            .skinned_meshes
+            .first()
+            .map(|sm| &sm.material)
+            .or(prepared.meshes.first().map(|m| &m.material));
+        if let Some(mat_src) = first_mat_src {
+            let mat = build_material(mat_src, &prepared.textures, tex_ids);
+            world.set_material(root, mat);
+        }
+
+        // MeshRenderer (mesh_id = None — children hold the actual meshes)
+        world.set_mesh_renderer(
+            root,
+            core::MeshRenderer {
+                mesh_id: None,
+                visible: true,
+            },
+        );
+
+        // SkeletalAnimator on root acts as the "controller" visible in Inspector.
+        // Parent→children sync in skeletal_animation_system propagates state to children.
+        if !prepared.skinned_meshes.is_empty() {
+            let skel_store_id = skeleton_ids.first().copied();
+            let skel_name = skel_store_id
+                .and_then(|sid| scene.skeleton_store.get_name(sid).map(|s| s.to_string()));
+            log::info!(
+                "[AssetLoader] Attaching root SkeletalAnimator to {:?}: skeleton={:?}, clips={}",
+                root, skel_name, clip_ids.len()
+            );
+            world.set_skeletal_animator(
+                root,
+                SkeletalAnimator {
+                    skeleton_id: skel_store_id,
+                    skeleton_name: skel_name,
+                    clip_ids: clip_ids.clone(),
+                    clip_names: clip_names.clone(),
+                    active_clip: if clip_ids.is_empty() { None } else { Some(0) },
+                    active_clip_name: clip_names.first().cloned(),
+                    playing: !clip_ids.is_empty(),
+                    loop_animation: true,
+                    ..SkeletalAnimator::default()
+                },
+            );
         }
     }
 

@@ -34,6 +34,7 @@ pub enum AssetEntry {
     File(String),
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Clone, Debug)]
 pub enum AssetModal {
     NewFolder { name: String },
@@ -130,6 +131,7 @@ pub enum EditorTab {
     Console,
     GameView,
     Settings,
+    AnimatorGraph,
 }
 
 pub struct BuiltinMeshes {
@@ -213,6 +215,7 @@ pub struct EditorContext {
     pub entity_count: usize,
     pub draw_calls: u32,
     pub visible_triangles: u32,
+    pub culled_entities: u32,
     pub show_stats_overlay: bool,
     pub show_grid: bool,
     pub dock_state: egui_dock::DockState<EditorTab>,
@@ -296,6 +299,8 @@ pub struct EditorContext {
     pub pending_hub_action: Option<HubAction>,
     /// Cached thumbnail textures for the project hub
     pub hub_thumbnails: std::collections::HashMap<String, egui::TextureHandle>,
+    /// Cached thumbnail textures for image files in the asset browser
+    pub asset_thumbnails: std::collections::HashMap<String, egui::TextureHandle>,
     /// Rename modal state: (original_path, text_input)
     pub hub_rename: Option<(String, String)>,
     /// Hub sort mode
@@ -316,6 +321,37 @@ pub struct EditorContext {
     pub bone_expanded: std::collections::HashSet<(EntityId, usize)>,
     /// Pending camera focus target (auto-focus after import)
     pub pending_camera_focus: Option<glam::Vec3>,
+    /// Name of the file to highlight after import (auto-cleared after display)
+    pub asset_highlight_file: Option<String>,
+    /// Timer for highlight fade-out
+    pub asset_highlight_timer: f32,
+    /// Currently selected asset files in the Project Browser (shown in Inspector)
+    pub selected_assets: Vec<std::path::PathBuf>,
+    /// Index of the last asset clicked (for Shift+click range select)
+    pub last_selected_asset_index: Option<usize>,
+    /// Mini animation preview: is playing
+    pub clip_preview_playing: bool,
+    /// Mini animation preview: current time in seconds
+    pub clip_preview_time: f32,
+    /// Animator graph: pan offset for the node canvas
+    pub animator_graph_pan: egui::Vec2,
+    /// Animator graph: zoom level (1.0 = default)
+    pub animator_graph_zoom: f32,
+    /// Animator graph: index of the state node currently being dragged
+    pub animator_graph_dragging: Option<usize>,
+    /// Animator graph: node position overrides (state index -> (x, y))
+    /// Used when nodes have never been positioned or user drags them.
+    pub animator_graph_positions: std::collections::HashMap<usize, (f32, f32)>,
+    /// Pending prefab save: (root entity, file path)
+    pub pending_save_prefab: Option<EntityId>,
+    /// Pending prefab instantiation: file path
+    pub pending_load_prefab: Option<String>,
+    /// Lasso rectangle selection: drag start point (screen coords)
+    pub lasso_origin: Option<egui::Pos2>,
+    /// Selection snapshot before lasso started (for Shift+lasso additive select)
+    pub pre_lasso_selection: Vec<std::path::PathBuf>,
+    /// Tracked scroll offset for lasso auto-scroll
+    pub lasso_scroll_offset: f32,
 }
 
 impl EditorContext {
@@ -350,6 +386,7 @@ impl EditorContext {
             entity_count: 0,
             draw_calls: 0,
             visible_triangles: 0,
+            culled_entities: 0,
             show_stats_overlay: true,
             show_grid: true,
             dock_state: Self::default_dock_state(),
@@ -399,6 +436,7 @@ impl EditorContext {
             screen: AppScreen::Hub,
             pending_hub_action: None,
             hub_thumbnails: std::collections::HashMap::new(),
+            asset_thumbnails: std::collections::HashMap::new(),
             hub_rename: None,
             hub_sort_mode: HubSortMode::DateDesc,
             hub_delete_confirm: None,
@@ -412,6 +450,21 @@ impl EditorContext {
             selected_bone: None,
             bone_expanded: std::collections::HashSet::new(),
             pending_camera_focus: None,
+            asset_highlight_file: None,
+            asset_highlight_timer: 0.0,
+            selected_assets: Vec::new(),
+            last_selected_asset_index: None,
+            clip_preview_playing: false,
+            clip_preview_time: 0.0,
+            animator_graph_pan: egui::Vec2::ZERO,
+            animator_graph_zoom: 1.0,
+            animator_graph_dragging: None,
+            animator_graph_positions: std::collections::HashMap::new(),
+            pending_save_prefab: None,
+            pending_load_prefab: None,
+            lasso_origin: None,
+            pre_lasso_selection: Vec::new(),
+            lasso_scroll_offset: 0.0,
         }
     }
 
@@ -430,11 +483,11 @@ impl EditorContext {
             0.294,
             vec![EditorTab::Inspector],
         );
-        // Assets + Console tabs below Hierarchy (left column)
+        // Assets + Console + AnimatorGraph tabs below Hierarchy (left column)
         let [_top, _bottom] = surface.split_below(
             _left,
             0.6,
-            vec![EditorTab::Assets, EditorTab::Console],
+            vec![EditorTab::Assets, EditorTab::Console, EditorTab::AnimatorGraph],
         );
         dock_state
     }
@@ -442,6 +495,7 @@ impl EditorContext {
     pub fn select(&mut self, id: EntityId) {
         self.selected_entities = vec![id];
         self.selected_bone = None;
+        self.selected_assets.clear(); // clear asset selection when selecting entity
     }
 
     pub fn toggle_select(&mut self, id: EntityId) {
@@ -477,6 +531,50 @@ impl EditorContext {
             }
         }
         if count > 0 { Some(sum / count as f32) } else { None }
+    }
+
+    // ---- Asset multi-selection helpers ----
+
+    /// Replace asset selection with a single asset.
+    pub fn select_asset(&mut self, path: std::path::PathBuf) {
+        self.selected_assets = vec![path];
+        self.selected_entities.clear();
+        self.selected_bone = None;
+    }
+
+    /// Toggle an asset in/out of the selection (Cmd/Ctrl+click).
+    pub fn toggle_asset(&mut self, path: std::path::PathBuf) {
+        if let Some(pos) = self.selected_assets.iter().position(|p| p == &path) {
+            self.selected_assets.remove(pos);
+        } else {
+            self.selected_assets.push(path);
+        }
+        self.selected_entities.clear();
+        self.selected_bone = None;
+    }
+
+    /// Select a range of assets (Shift+click) given the flat entry list.
+    pub fn select_asset_range(&mut self, entries: &[AssetEntry], clicked_index: usize, current_dir: &std::path::Path) {
+        let anchor = self.last_selected_asset_index.unwrap_or(clicked_index);
+        let lo = anchor.min(clicked_index);
+        let hi = anchor.max(clicked_index);
+        self.selected_assets.clear();
+        for entry in entries.iter().skip(lo).take(hi - lo + 1) {
+            let name = match entry {
+                AssetEntry::Folder(n) | AssetEntry::File(n) => n,
+            };
+            self.selected_assets.push(current_dir.join(name));
+        }
+        self.selected_entities.clear();
+        self.selected_bone = None;
+    }
+
+    pub fn is_asset_selected(&self, path: &std::path::Path) -> bool {
+        self.selected_assets.iter().any(|p| p.as_path() == path)
+    }
+
+    pub fn primary_asset(&self) -> Option<&std::path::Path> {
+        self.selected_assets.last().map(|p| p.as_path())
     }
 
     pub fn refresh_assets(&mut self) {

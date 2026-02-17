@@ -1,5 +1,6 @@
 use egui::{Color32, ComboBox, DragValue};
 
+use crate::core::AnimatorParameter;
 use crate::editor::layout::{EditorTabViewer, component_section, property_row};
 use crate::editor::theme;
 
@@ -10,7 +11,7 @@ impl<'a> EditorTabViewer<'a> {
         }
         const ANIM_ACCENT: Color32 = Color32::from_rgb(0xA6, 0xE3, 0xA1);
         let remove_anim = component_section(ui, "animator", "An", "Animator", ANIM_ACCENT, true, |ui| {
-            let anim = self.world.get_animator_mut(eid).unwrap();
+            let Some(anim) = self.world.get_animator_mut(eid) else { return; };
 
             property_row(ui, "Playing", |ui| {
                 ui.checkbox(&mut anim.playing, "");
@@ -85,7 +86,7 @@ impl<'a> EditorTabViewer<'a> {
         }
         const SKEL_ACCENT: Color32 = Color32::from_rgb(0xCB, 0xA6, 0xF7);
         let remove_skel = component_section(ui, "skeletal_animator", "Sk", "SkeletalAnimator", SKEL_ACCENT, true, |ui| {
-            let sa = self.world.get_skeletal_animator_mut(eid).unwrap();
+            let Some(sa) = self.world.get_skeletal_animator_mut(eid) else { return; };
 
             property_row(ui, "Skeleton", |ui| {
                 ui.label(sa.skeleton_name.as_deref().unwrap_or("(none)"));
@@ -131,6 +132,128 @@ impl<'a> EditorTabViewer<'a> {
             self.editor_ctx.undo_stack.push(self.world.snapshot(), self.editor_ctx.selected_entities.clone());
             self.world.remove_skeletal_animator(eid);
         }
+    }
+
+    pub(super) fn inspector_animator_controller(&mut self, ui: &mut egui::Ui, eid: crate::core::EntityId) {
+        // Only show if the entity has a SkeletalAnimator with a controller assigned
+        let has_controller = self.world.get_skeletal_animator(eid)
+            .map(|sa| sa.controller_id.is_some())
+            .unwrap_or(false);
+
+        if !has_controller { return; }
+
+        const CTRL_ACCENT: Color32 = Color32::from_rgb(0xCB, 0xA6, 0xF7); // mauve
+
+        component_section(ui, "animator_controller", "AC", "Animator Controller", CTRL_ACCENT, false, |ui| {
+            // ---- Read-only info (immutable borrow) ----
+            let (ctrl_name, state_name, is_blending, blend_progress, prev_state_name) = {
+                let sa = self.world.get_skeletal_animator(eid).unwrap();
+                let ctrl_name = sa.controller_name.clone().unwrap_or_else(|| "(none)".into());
+                let mut state_name = "(none)".to_string();
+                let mut is_blending = false;
+                let mut blend_progress = 0.0f32;
+                let mut prev_state_name = String::new();
+
+                if let Some(ref cs) = sa.controller_state {
+                    state_name = format!("State {}", cs.current_state);
+                    is_blending = cs.is_blending;
+                    blend_progress = cs.blend_progress;
+                    if let Some(ps) = cs.previous_state {
+                        prev_state_name = format!("State {}", ps);
+                    }
+                }
+                (ctrl_name, state_name, is_blending, blend_progress, prev_state_name)
+            };
+
+            property_row(ui, "Controller", |ui| {
+                ui.label(&ctrl_name);
+            });
+            property_row(ui, "State", |ui| {
+                ui.label(egui::RichText::new(&state_name).strong());
+            });
+
+            if is_blending {
+                property_row(ui, "Blend", |ui| {
+                    ui.label(format!("{} \u{2192} {}", prev_state_name, state_name));
+                });
+                ui.add(egui::ProgressBar::new(blend_progress).show_percentage());
+            }
+
+            // ---- Parameters section ----
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new("Parameters").color(theme::TEXT_DISABLED).small());
+
+            // Collect parameter names to avoid borrow issues
+            let mut param_names: Vec<String> = {
+                let sa = self.world.get_skeletal_animator(eid).unwrap();
+                sa.controller_state.as_ref()
+                    .map(|cs| cs.parameters.keys().cloned().collect())
+                    .unwrap_or_default()
+            };
+            param_names.sort();
+
+            if param_names.is_empty() {
+                ui.label(egui::RichText::new("No parameters").color(theme::TEXT_DISABLED).size(11.0));
+            }
+
+            for name in &param_names {
+                // Read current value (immutable borrow, then drop)
+                let param_value = {
+                    let sa = self.world.get_skeletal_animator(eid).unwrap();
+                    sa.controller_state.as_ref()
+                        .and_then(|cs| cs.parameters.get(name).cloned())
+                };
+
+                if let Some(param) = param_value {
+                    match param {
+                        AnimatorParameter::Float(mut v) => {
+                            property_row(ui, name, |ui| {
+                                if ui.add(DragValue::new(&mut v).speed(0.05)).changed() {
+                                    if let Some(sa) = self.world.get_skeletal_animator_mut(eid) {
+                                        if let Some(ref mut cs) = sa.controller_state {
+                                            cs.set_float(name, v);
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                        AnimatorParameter::Int(mut v) => {
+                            property_row(ui, name, |ui| {
+                                if ui.add(DragValue::new(&mut v).speed(0.1)).changed() {
+                                    if let Some(sa) = self.world.get_skeletal_animator_mut(eid) {
+                                        if let Some(ref mut cs) = sa.controller_state {
+                                            cs.set_int(name, v);
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                        AnimatorParameter::Bool(mut v) => {
+                            property_row(ui, name, |ui| {
+                                if ui.checkbox(&mut v, "").changed() {
+                                    if let Some(sa) = self.world.get_skeletal_animator_mut(eid) {
+                                        if let Some(ref mut cs) = sa.controller_state {
+                                            cs.set_bool(name, v);
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                        AnimatorParameter::Trigger(_) => {
+                            property_row(ui, name, |ui| {
+                                if ui.button("Fire").clicked() {
+                                    if let Some(sa) = self.world.get_skeletal_animator_mut(eid) {
+                                        if let Some(ref mut cs) = sa.controller_state {
+                                            cs.set_trigger(name);
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+        });
     }
 
     pub(super) fn inspector_bone(&mut self, ui: &mut egui::Ui) {

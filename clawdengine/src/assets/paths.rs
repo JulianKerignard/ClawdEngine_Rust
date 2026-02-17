@@ -9,7 +9,7 @@ pub fn init() {
     BASE_DIR.get_or_init(|| {
         // Detect .app bundle: exe lives in Contents/MacOS/
         if let Ok(exe) = std::env::current_exe() {
-            if let Some(exe) = exe.canonicalize().ok() {
+            if let Ok(exe) = exe.canonicalize() {
                 if let Some(macos_dir) = exe.parent() {
                     if macos_dir.file_name().is_some_and(|n| n == "MacOS") {
                         if let Some(contents) = macos_dir.parent() {

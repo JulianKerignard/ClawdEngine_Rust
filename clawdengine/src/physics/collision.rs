@@ -1,6 +1,24 @@
 use std::collections::HashSet;
 use glam::Vec3;
-use crate::core::EntityId;
+use crate::core::{ColliderShape, EntityId};
+
+// ---- ColBody (shared between collision and physics step) ----
+
+pub(crate) struct ColBody {
+    pub eid: EntityId,
+    pub world_min: Vec3,
+    pub world_max: Vec3,
+    pub has_rb: bool,
+    pub is_trigger: bool,
+    pub restitution: f32,
+    pub friction: f32,
+    pub shape: ColliderShape,
+    pub world_center: Vec3,
+    pub world_radius: f32,
+    pub cap_a: Vec3,
+    pub cap_b: Vec3,
+    pub cap_r: f32,
+}
 
 // ---- Contact ----
 
@@ -174,6 +192,7 @@ pub fn capsule_aabb_contact(
 
 // ---- Capsule-Capsule contact ----
 
+#[allow(clippy::too_many_arguments)]
 pub fn capsule_capsule_contact(
     a1: Vec3, a2: Vec3, r_a: f32,
     b1: Vec3, b2: Vec3, r_b: f32,
@@ -181,6 +200,14 @@ pub fn capsule_capsule_contact(
 ) -> Option<Contact> {
     let (p1, p2) = closest_points_segments(a1, a2, b1, b2);
     sphere_sphere_contact(p1, r_a, p2, r_b, id_a, id_b)
+}
+
+// ---- Contact flip helper ----
+
+pub(crate) fn flip_contact(mut c: Contact) -> Contact {
+    std::mem::swap(&mut c.entity_a, &mut c.entity_b);
+    c.normal = -c.normal;
+    c
 }
 
 // ---- Impulse resolution ----
@@ -269,11 +296,19 @@ fn canonical_pair(a: EntityId, b: EntityId) -> (u32, u32) {
 
 pub struct CollisionState {
     active_pairs: HashSet<(u32, u32)>,
+    pub(crate) bodies: Vec<ColBody>,
+    pub(crate) contacts: Vec<Contact>,
+    pub(crate) body_index: std::collections::HashMap<EntityId, usize>,
 }
 
 impl CollisionState {
     pub fn new() -> Self {
-        Self { active_pairs: HashSet::new() }
+        Self {
+            active_pairs: HashSet::new(),
+            bodies: Vec::new(),
+            contacts: Vec::new(),
+            body_index: std::collections::HashMap::new(),
+        }
     }
 
     pub fn update(&mut self, contacts: &[Contact]) -> Vec<CollisionEvent> {
@@ -328,5 +363,8 @@ impl CollisionState {
 
     pub fn clear(&mut self) {
         self.active_pairs.clear();
+        self.bodies.clear();
+        self.contacts.clear();
+        self.body_index.clear();
     }
 }

@@ -1,8 +1,48 @@
+use std::path::Path;
+
 use crate::assets;
-use crate::core::{self, World};
+use crate::core::{self, EntityId, World};
 use crate::editor::context::{EditorContext, ScriptRegistryEntry};
 use crate::renderer::{GpuContext, SceneRenderer};
-use crate::scripting;
+use crate::scripting::{self, GameScript};
+
+/// Copy a dropped file into the appropriate project subfolder.
+/// Returns the local (relative) path to use for loading, or None if copy failed.
+pub(crate) fn copy_dropped_file_to_project(
+    ec: &mut EditorContext,
+    source_path: &str,
+) -> Option<String> {
+    ec.current_project_path.as_ref()?;
+
+    let src = Path::new(source_path);
+    let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+
+    let file_name = src.file_name()?;
+    // Copy to project root so files are immediately visible in the file browser
+    let dest_dir = Path::new(".");
+
+    // Avoid overwriting: add suffix if file already exists
+    let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+    let ext_dot = if ext.is_empty() { String::new() } else { format!(".{}", ext) };
+    let mut dest = dest_dir.join(file_name);
+    let mut counter = 2u32;
+    while dest.exists() {
+        dest = dest_dir.join(format!("{} {}{}", stem, counter, ext_dot));
+        counter += 1;
+    }
+
+    match std::fs::copy(src, &dest) {
+        Ok(_) => {
+            log::info!("Copied asset to project: {}", dest.display());
+            ec.refresh_assets();
+            Some(dest.to_string_lossy().to_string())
+        }
+        Err(e) => {
+            log::error!("Failed to copy {} to project: {}", source_path, e);
+            None
+        }
+    }
+}
 
 fn is_valid_asset_name(name: &str) -> bool {
     if name.is_empty() || name.len() > 255 {
@@ -50,6 +90,12 @@ pub(crate) fn process_load_asset(
     };
 
     let drop_pos = compute_drop_position(ec, &scene.camera);
+
+    if asset_path.ends_with(".prefab.ron") {
+        // Prefab instantiation
+        ec.pending_load_prefab = Some(asset_path);
+        return;
+    }
 
     if asset_path.ends_with(".glb") || asset_path.ends_with(".gltf") || asset_path.ends_with(".fbx") {
         if ec.asset_load_state.is_some() {
@@ -133,7 +179,65 @@ pub(crate) fn process_delete_asset(ec: &mut EditorContext) {
             ec.refresh_assets();
         }
         Err(e) => {
-            log::error!("Failed to delete {}: {}", path.display(), e);
+            log::error!("Delete failed: {}", e);
+        }
+    }
+}
+
+/// Save the selected entity subtree as a `.prefab.ron` in the current asset directory.
+pub(crate) fn process_save_prefab(
+    world: &World,
+    ec: &mut EditorContext,
+    scene: &SceneRenderer,
+    scripts: &[(EntityId, Box<dyn GameScript>)],
+) {
+    let Some(root) = ec.pending_save_prefab.take() else { return; };
+    let name = world.get_name(root).unwrap_or("Prefab");
+    let filename = format!("{}.prefab.ron", name);
+    let path = ec.asset_current_dir.join(&filename);
+    let path_str = path.to_string_lossy().to_string();
+
+    match assets::prefab::save_prefab(world, &scene.mesh_store, scripts, root, &path_str) {
+        Ok(()) => {
+            log::info!("Saved prefab: {}", path_str);
+            ec.save_feedback = Some((format!("Prefab '{}' saved", filename), 2.5));
+            ec.refresh_assets();
+        }
+        Err(e) => {
+            log::error!("Failed to save prefab: {}", e);
+            ec.save_feedback = Some((format!("Failed: {}", e), 3.0));
+        }
+    }
+}
+
+/// Instantiate a prefab from a `.prefab.ron` file.
+pub(crate) fn process_load_prefab(
+    world: &mut World,
+    ec: &mut EditorContext,
+    scene: &mut SceneRenderer,
+    gpu: &GpuContext,
+    scripts: &mut Vec<(EntityId, Box<dyn GameScript>)>,
+) {
+    let Some(path) = ec.pending_load_prefab.take() else { return; };
+
+    ec.undo_stack.push(world.snapshot(), ec.selected_entities.clone());
+
+    match assets::prefab::instantiate_prefab(
+        world,
+        &mut scene.mesh_store,
+        scripts,
+        &ec.script_registry,
+        &gpu.device,
+        &path,
+    ) {
+        Ok(root_id) => {
+            log::info!("Instantiated prefab: {}", path);
+            ec.save_feedback = Some(("Prefab instantiated".into(), 2.0));
+            ec.select(root_id);
+        }
+        Err(e) => {
+            log::error!("Failed to load prefab '{}': {}", path, e);
+            ec.save_feedback = Some((format!("Prefab error: {}", e), 3.0));
         }
     }
 }

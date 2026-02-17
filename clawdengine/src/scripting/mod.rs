@@ -11,6 +11,7 @@ use crate::core::{EntityId, World, Transform, RigidBody, Material, AudioSource};
 use crate::input::Input;
 use crate::physics::collision::CollisionEvent;
 use crate::physics::raycast::RayHit;
+use crate::renderer::mesh::MeshStore;
 
 pub use winit::keyboard::KeyCode;
 pub use winit::event::MouseButton;
@@ -36,6 +37,7 @@ pub struct ScriptContext<'a> {
     pub world: &'a mut World,
     collision_events: &'a [CollisionEvent],
     input: &'a Input,
+    mesh_store: Option<&'a MeshStore>,
     pub time: f32,
     pub dt: f32,
     pending_destroy: Vec<EntityId>,
@@ -55,10 +57,17 @@ impl<'a> ScriptContext<'a> {
             world,
             collision_events: events,
             input,
+            mesh_store: None,
             time,
             dt,
             pending_destroy: Vec::new(),
         }
+    }
+
+    /// Set the optional MeshStore reference for mesh-AABB raycasting.
+    pub fn with_mesh_store(mut self, mesh_store: &'a MeshStore) -> Self {
+        self.mesh_store = Some(mesh_store);
+        self
     }
 
     /// Take the list of entities to destroy after script execution.
@@ -271,5 +280,29 @@ impl<'a> ScriptContext<'a> {
         let t = self.world.get_transform(self.entity)?;
         let forward = t.rotation * glam::Vec3::NEG_Z;
         crate::physics::raycast::raycast(self.world, t.position, forward, max_distance)
+    }
+
+    /// Cast a ray against mesh AABBs of all visible entities (no Collider needed).
+    /// Returns the closest hit, or `None` if MeshStore is unavailable.
+    pub fn raycast_mesh(&self, origin: glam::Vec3, direction: glam::Vec3, max_distance: f32) -> Option<RayHit> {
+        let ms = self.mesh_store?;
+        crate::physics::raycast::raycast_mesh_aabb(self.world, ms, origin, direction, max_distance)
+    }
+
+    /// Cast a ray against all visible mesh AABBs. Returns all hits sorted by distance.
+    /// Returns empty Vec if MeshStore is unavailable.
+    pub fn raycast_mesh_all(&self, origin: glam::Vec3, direction: glam::Vec3, max_distance: f32) -> Vec<RayHit> {
+        match self.mesh_store {
+            Some(ms) => crate::physics::raycast::raycast_mesh_aabb_all(self.world, ms, origin, direction, max_distance),
+            None => Vec::new(),
+        }
+    }
+
+    /// Cast a ray forward from this entity against mesh AABBs.
+    pub fn raycast_mesh_forward(&self, max_distance: f32) -> Option<RayHit> {
+        let t = self.world.get_transform(self.entity)?;
+        let forward = t.rotation * glam::Vec3::NEG_Z;
+        let ms = self.mesh_store?;
+        crate::physics::raycast::raycast_mesh_aabb(self.world, ms, t.position, forward, max_distance)
     }
 }

@@ -18,6 +18,7 @@ pub struct EditorTabViewer<'a> {
     pub editor_ctx: &'a mut EditorContext,
     pub scripts: &'a mut Vec<(EntityId, Box<dyn GameScript>)>,
     pub skeleton_store: &'a crate::core::SkeletonStore,
+    pub animator_controller_store: &'a crate::core::AnimatorControllerStore,
 }
 
 impl<'a> TabViewer for EditorTabViewer<'a> {
@@ -32,6 +33,7 @@ impl<'a> TabViewer for EditorTabViewer<'a> {
             EditorTab::Console => "Console".into(),
             EditorTab::GameView => "Game".into(),
             EditorTab::Settings => "\u{2699} Settings".into(),
+            EditorTab::AnimatorGraph => "\u{1F3AC} Animator".into(),
         }
     }
 
@@ -44,6 +46,7 @@ impl<'a> TabViewer for EditorTabViewer<'a> {
             EditorTab::Console => self.show_console(ui),
             EditorTab::GameView => self.show_game_view(ui),
             EditorTab::Settings => self.show_settings(ui),
+            EditorTab::AnimatorGraph => self.show_animator_graph(ui),
         }
     }
 
@@ -390,6 +393,7 @@ impl EditorLayout {
             editor_ctx,
             scripts,
             skeleton_store: &scene.skeleton_store,
+            animator_controller_store: &scene.animator_controller_store,
         };
 
         DockArea::new(&mut dock_state)
