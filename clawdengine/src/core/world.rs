@@ -1,4 +1,5 @@
 use std::any::{Any, TypeId};
+use std::cell::Cell;
 use std::collections::HashMap;
 
 use super::entity::EntityId;
@@ -37,6 +38,9 @@ pub struct World {
     alive: Vec<bool>,
     free_list: Vec<u32>,
     names: Vec<String>,
+    /// Cached count of alive entities — kept in sync with the `alive` vector
+    /// so callers can read it in O(1) without scanning.
+    alive_count: u32,
 
     // SoA component storage
     transforms: Vec<Option<Transform>>,
@@ -57,6 +61,11 @@ pub struct World {
 
     // TypeMap for custom components
     custom: HashMap<TypeId, Vec<Option<Box<dyn Any>>>>,
+
+    /// Cached entity carrying a `CameraComponent { is_main = true }`. Invalidated
+    /// (set to None) whenever cameras change so the next reader recomputes.
+    /// `Cell` lets immutable readers populate the cache without `&mut World`.
+    main_camera_cache: Cell<Option<EntityId>>,
 }
 
 impl World {
@@ -66,6 +75,7 @@ impl World {
             alive: Vec::new(),
             free_list: Vec::new(),
             names: Vec::new(),
+            alive_count: 0,
             transforms: Vec::new(),
             mesh_renderers: Vec::new(),
             materials: Vec::new(),
@@ -80,12 +90,14 @@ impl World {
             parents: Vec::new(),
             children: Vec::new(),
             custom: HashMap::new(),
+            main_camera_cache: Cell::new(None),
         }
     }
 
     // ---- Entity lifecycle ----
 
     pub fn spawn_entity(&mut self) -> EntityId {
+        self.alive_count += 1;
         if let Some(index) = self.free_list.pop() {
             let idx = index as usize;
             self.generations[idx] += 1;
@@ -139,6 +151,10 @@ impl World {
         }
         let idx = id.index as usize;
         self.alive[idx] = false;
+        self.alive_count = self.alive_count.saturating_sub(1);
+        if self.cameras[idx].is_some() {
+            self.main_camera_cache.set(None);
+        }
         self.names[idx].clear();
         self.transforms[idx] = None;
         self.mesh_renderers[idx] = None;
@@ -180,7 +196,7 @@ impl World {
     }
 
     pub fn entity_count(&self) -> usize {
-        self.alive.iter().filter(|&&a| a).count()
+        self.alive_count as usize
     }
 
     pub fn set_name(&mut self, id: EntityId, name: impl Into<String>) {
@@ -423,7 +439,10 @@ impl World {
     // ---- Camera ----
 
     pub fn set_camera(&mut self, id: EntityId, c: CameraComponent) {
-        if self.is_alive(id) { self.cameras[id.index as usize] = Some(c); }
+        if self.is_alive(id) {
+            self.cameras[id.index as usize] = Some(c);
+            self.main_camera_cache.set(None);
+        }
     }
 
     pub fn get_camera(&self, id: EntityId) -> Option<&CameraComponent> {
@@ -433,11 +452,43 @@ impl World {
 
     pub fn get_camera_mut(&mut self, id: EntityId) -> Option<&mut CameraComponent> {
         if !self.is_alive(id) { return None; }
+        // Caller might toggle `is_main`; conservatively invalidate the cache.
+        self.main_camera_cache.set(None);
         self.cameras[id.index as usize].as_mut()
     }
 
     pub fn remove_camera(&mut self, id: EntityId) {
-        if self.is_alive(id) { self.cameras[id.index as usize] = None; }
+        if self.is_alive(id) {
+            self.cameras[id.index as usize] = None;
+            self.main_camera_cache.set(None);
+        }
+    }
+
+    /// Return the entity carrying the main `CameraComponent`, if any. Result is
+    /// cached across frames and invalidated on camera mutations. The cache uses
+    /// interior mutability so this can run behind a `&World`.
+    pub fn find_main_camera_entity(&self) -> Option<EntityId> {
+        if let Some(eid) = self.main_camera_cache.get() {
+            if self.is_alive(eid) {
+                if let Some(cam) = self.cameras[eid.index as usize].as_ref() {
+                    if cam.is_main {
+                        return Some(eid);
+                    }
+                }
+            }
+            self.main_camera_cache.set(None);
+        }
+        for (i, slot) in self.cameras.iter().enumerate() {
+            if !self.alive[i] { continue; }
+            if let Some(cam) = slot {
+                if cam.is_main {
+                    let eid = EntityId::new(i as u32, self.generations[i]);
+                    self.main_camera_cache.set(Some(eid));
+                    return Some(eid);
+                }
+            }
+        }
+        None
     }
 
     // ---- AudioSource ----
@@ -599,13 +650,19 @@ impl World {
         self.canvases = snap.canvases;
         self.parents = snap.parents;
         self.children = snap.children;
-        // Rebuild free list from alive flags.
+        // Rebuild free list and alive_count from alive flags.
         self.free_list.clear();
+        let mut alive_count: u32 = 0;
         for (i, &alive) in self.alive.iter().enumerate() {
-            if !alive {
+            if alive {
+                alive_count += 1;
+            } else {
                 self.free_list.push(i as u32);
             }
         }
+        self.alive_count = alive_count;
+        // Camera cache: cameras may have moved during the restore.
+        self.main_camera_cache.set(None);
         // Custom (TypeMap) components are not snapshot-able (Box<dyn Any> has
         // no Clone). Drop entries for slots that the restore marked dead so a
         // re-spawn at the same index can't observe a "ghost" component left

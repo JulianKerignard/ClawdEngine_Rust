@@ -722,22 +722,21 @@ impl GpuContext {
     }
 
     fn find_main_camera(world: &World, aspect: f32) -> Option<super::camera::CameraUniforms> {
-        for eid in world.iter_entities() {
-            let Some(cam) = world.get_camera(eid) else { continue };
-            if !cam.is_main { continue; }
-            let wt = world.get_world_transform(eid)?;
+        // World caches the main-camera EntityId across frames and invalidates
+        // it on any camera mutation, so this is O(1) on the hot path.
+        let eid = world.find_main_camera_entity()?;
+        let cam = world.get_camera(eid)?;
+        let wt = world.get_world_transform(eid)?;
 
-            let fwd = wt.rotation * glam::Vec3::new(0.0, 0.0, -1.0);
-            let eye = wt.position;
-            let target = eye + fwd;
-            let view = glam::Mat4::look_at_rh(eye, target, glam::Vec3::Y);
-            let proj = glam::Mat4::perspective_rh(cam.fov_y, aspect, cam.near, cam.far);
+        let fwd = wt.rotation * glam::Vec3::new(0.0, 0.0, -1.0);
+        let eye = wt.position;
+        let target = eye + fwd;
+        let view = glam::Mat4::look_at_rh(eye, target, glam::Vec3::Y);
+        let proj = glam::Mat4::perspective_rh(cam.fov_y, aspect, cam.near, cam.far);
 
-            return Some(super::camera::CameraUniforms {
-                view_proj: (proj * view).to_cols_array_2d(),
-                eye_position: [eye.x, eye.y, eye.z, 1.0],
-            });
-        }
-        None
+        Some(super::camera::CameraUniforms {
+            view_proj: (proj * view).to_cols_array_2d(),
+            eye_position: [eye.x, eye.y, eye.z, 1.0],
+        })
     }
 }
