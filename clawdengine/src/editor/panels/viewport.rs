@@ -60,7 +60,7 @@ impl<'a> EditorTabViewer<'a> {
 
                 let is_selected = self.editor_ctx.is_selected(eid);
                 let border_color = if is_selected {
-                    Color32::from_rgb(0xCB, 0xA6, 0xF7)
+                    theme::MAUVE
                 } else {
                     Color32::from_rgba_premultiplied(0xCB, 0xA6, 0xF7, 60)
                 };
@@ -106,7 +106,7 @@ impl<'a> EditorTabViewer<'a> {
                             if child_selected {
                                 painter.rect_stroke(
                                     text_rect.expand(2.0), 2.0,
-                                    egui::Stroke::new(1.0, Color32::from_rgb(0xCB, 0xA6, 0xF7)),
+                                    egui::Stroke::new(1.0, theme::MAUVE),
                                     egui::StrokeKind::Outside,
                                 );
                             }
@@ -118,7 +118,7 @@ impl<'a> EditorTabViewer<'a> {
                             );
                             painter.rect_filled(rect, 4.0, color);
                             let stroke_color = if child_selected {
-                                Color32::from_rgb(0xCB, 0xA6, 0xF7)
+                                theme::MAUVE
                             } else {
                                 Color32::from_white_alpha(40)
                             };
@@ -162,7 +162,7 @@ impl<'a> EditorTabViewer<'a> {
                         if is_selected {
                             painter.rect_stroke(
                                 text_rect.expand(2.0), 2.0,
-                                egui::Stroke::new(1.0, Color32::from_rgb(0xCB, 0xA6, 0xF7)),
+                                egui::Stroke::new(1.0, theme::MAUVE),
                                 egui::StrokeKind::Outside,
                             );
                         }
@@ -173,7 +173,7 @@ impl<'a> EditorTabViewer<'a> {
                         if is_selected {
                             painter.rect_stroke(
                                 rect, 4.0,
-                                egui::Stroke::new(2.0, Color32::from_rgb(0xCB, 0xA6, 0xF7)),
+                                egui::Stroke::new(2.0, theme::MAUVE),
                                 egui::StrokeKind::Outside,
                             );
                         } else {

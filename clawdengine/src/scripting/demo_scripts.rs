@@ -331,13 +331,11 @@ impl GameScript for Oscillate {
 pub struct AudioDemo {
     time: f32,
     interval: f32,
-    #[allow(dead_code)]
-    started: bool,
 }
 
 impl AudioDemo {
     pub fn new() -> Self {
-        Self { time: 0.0, interval: 3.0, started: false }
+        Self { time: 0.0, interval: 3.0 }
     }
 }
 
@@ -346,7 +344,6 @@ impl GameScript for AudioDemo {
 
     fn start(&mut self, ctx: &mut ScriptContext) {
         self.time = 0.0;
-        self.started = false;
         ctx.play_audio();
     }
 

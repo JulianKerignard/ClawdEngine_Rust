@@ -332,20 +332,21 @@ pub fn resolve_anchor(anchor: crate::core::UiAnchor, rect: egui::Rect) -> egui::
 }
 
 pub fn entity_icon(world: &World, id: EntityId) -> (&'static str, Color32) {
+    use crate::editor::theme;
     if world.get_canvas(id).is_some() {
-        ("\u{1F5BC}", Color32::from_rgb(0xCB, 0xA6, 0xF7)) // mauve canvas frame
+        ("\u{1F5BC}", theme::MAUVE) // canvas frame
     } else if world.get_camera(id).is_some() {
-        ("\u{1F3A5}", Color32::from_rgb(0x87, 0xDB, 0xEB)) // sky blue camera
+        ("\u{1F3A5}", theme::SKY) // camera
     } else if world.get_light(id).is_some() {
-        ("\u{2600}", Color32::from_rgb(0xF0, 0xC0, 0x40)) // yellow sun
+        ("\u{2600}", Color32::from_rgb(0xF0, 0xC0, 0x40)) // sun (warmer yellow than WARNING)
     } else if world.get_ui_element(id).is_some() {
-        ("\u{1F5B5}", Color32::from_rgb(0xCB, 0xA6, 0xF7)) // mauve UI icon
+        ("\u{1F5B5}", theme::MAUVE) // UI icon
     } else if world.get_audio_source(id).is_some() {
-        ("\u{1F50A}", Color32::from_rgb(0xF9, 0xE2, 0xAF)) // yellow speaker
+        ("\u{1F50A}", theme::WARNING) // speaker
     } else if world.get_mesh_renderer(id).is_some() {
-        ("\u{25A0}", Color32::from_rgb(0x4B, 0x8B, 0xBE)) // blue square
+        ("\u{25A0}", Color32::from_rgb(0x4B, 0x8B, 0xBE)) // blue square (kept — distinct from accents)
     } else {
-        ("\u{25CB}", Color32::from_rgb(0x80, 0x80, 0x80)) // gray circle
+        ("\u{25CB}", Color32::from_rgb(0x80, 0x80, 0x80)) // gray circle (neutral)
     }
 }
 

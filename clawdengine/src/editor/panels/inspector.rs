@@ -1,4 +1,4 @@
-use egui::{Color32, ComboBox, CornerRadius, DragValue, Frame, Margin, Slider, Stroke};
+use egui::{ComboBox, CornerRadius, DragValue, Frame, Margin, Slider, Stroke};
 use glam::EulerRot;
 
 use crate::core::LightKind;
@@ -8,10 +8,10 @@ use crate::editor::layout::{
 };
 use crate::editor::theme;
 
-// Component accent colors (Catppuccin Mocha extended palette)
-const MAT_ACCENT: Color32 = Color32::from_rgb(0xF5, 0xC2, 0xE7); // pink
-const MESH_ACCENT: Color32 = Color32::from_rgb(0x94, 0xE2, 0xD5); // teal
-const RB_ACCENT: Color32 = Color32::from_rgb(0xFA, 0xB3, 0x87); // peach
+// Component accent colors (sourced from theme module — single source of truth).
+const MAT_ACCENT: egui::Color32 = theme::COMPONENT_MATERIAL;
+const MESH_ACCENT: egui::Color32 = theme::COMPONENT_MESH;
+const RB_ACCENT: egui::Color32 = theme::COMPONENT_RIGIDBODY;
 
 impl<'a> EditorTabViewer<'a> {
     pub(crate) fn show_inspector(&mut self, ui: &mut egui::Ui) {
@@ -187,7 +187,7 @@ impl<'a> EditorTabViewer<'a> {
                     ui,
                     "Albedo",
                     &m.texture_path,
-                    Color32::from_rgb(0x89, 0xB4, 0xFA),
+                    theme::ACCENT,
                 );
                 if albedo_action == TextureSlotAction::Remove {
                     m.texture_path = None;
@@ -210,7 +210,7 @@ impl<'a> EditorTabViewer<'a> {
                     ui,
                     "Normal Map",
                     &m.normal_map_path,
-                    Color32::from_rgb(0x94, 0xE2, 0xD5),
+                    theme::TEAL,
                 );
                 if normal_action == TextureSlotAction::Remove {
                     m.normal_map_path = None;
@@ -393,8 +393,7 @@ impl<'a> EditorTabViewer<'a> {
 
         // ---- Camera ----
         if self.world.get_camera(eid).is_some() {
-            const CAM_ACCENT: Color32 = Color32::from_rgb(0x89, 0xDC, 0xEB);
-            let remove_cam = component_section(ui, "camera", "Cam", "Camera", CAM_ACCENT, true, |ui| {
+            let remove_cam = component_section(ui, "camera", "Cam", "Camera", theme::SKY, true, |ui| {
                 let cam = self.world.get_camera_mut(eid).unwrap();
                 property_row(ui, "FOV (deg)", |ui| {
                     let mut fov_deg = cam.fov_y.to_degrees();
@@ -420,8 +419,7 @@ impl<'a> EditorTabViewer<'a> {
 
         // ---- AudioListener ----
         if self.world.get_audio_listener(eid).is_some() {
-            const LISTENER_ACCENT: Color32 = Color32::from_rgb(0xCB, 0xA6, 0xF7); // mauve
-            let remove_al = component_section(ui, "audio_listener", "AL", "AudioListener", LISTENER_ACCENT, true, |ui| {
+            let remove_al = component_section(ui, "audio_listener", "AL", "AudioListener", theme::MAUVE, true, |ui| {
                 let al = self.world.get_audio_listener_mut(eid).unwrap();
                 property_row(ui, "Active", |ui| {
                     ui.checkbox(&mut al.active, "");
@@ -438,8 +436,7 @@ impl<'a> EditorTabViewer<'a> {
 
         // ---- AudioSource ----
         if self.world.get_audio_source(eid).is_some() {
-            const AUDIO_ACCENT: Color32 = Color32::from_rgb(0xF9, 0xE2, 0xAF);
-            let remove_audio = component_section(ui, "audio", "A", "AudioSource", AUDIO_ACCENT, true, |ui| {
+            let remove_audio = component_section(ui, "audio", "A", "AudioSource", theme::WARNING, true, |ui| {
                 let audio = self.world.get_audio_source_mut(eid).unwrap();
 
                 property_row(ui, "File", |ui| {
@@ -518,8 +515,7 @@ impl<'a> EditorTabViewer<'a> {
 
         // ---- Canvas ----
         if self.world.get_canvas(eid).is_some() {
-            const CANVAS_ACCENT: Color32 = Color32::from_rgb(0xCB, 0xA6, 0xF7);
-            let remove_cv = component_section(ui, "canvas", "Cv", "Canvas", CANVAS_ACCENT, true, |ui| {
+            let remove_cv = component_section(ui, "canvas", "Cv", "Canvas", theme::MAUVE, true, |ui| {
                 let cv = self.world.get_canvas_mut(eid).unwrap();
                 property_row(ui, "Width", |ui| {
                     ui.add(DragValue::new(&mut cv.width).speed(1.0).range(100.0..=3840.0));
@@ -539,8 +535,7 @@ impl<'a> EditorTabViewer<'a> {
 
         // ---- UiElement ----
         if self.world.get_ui_element(eid).is_some() {
-            const UI_ACCENT: Color32 = Color32::from_rgb(0xCB, 0xA6, 0xF7); // mauve
-            let remove_ui = component_section(ui, "ui_element", "U", "UiElement", UI_ACCENT, true, |ui| {
+            let remove_ui = component_section(ui, "ui_element", "U", "UiElement", theme::MAUVE, true, |ui| {
                 let el = self.world.get_ui_element_mut(eid).unwrap();
 
                 property_row(ui, "Kind", |ui| {

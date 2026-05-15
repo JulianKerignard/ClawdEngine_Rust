@@ -1,3 +1,8 @@
+// CollisionEvent is consumed by user scripts via ScriptContext::collisions().
+// Some fields are exposed for API completeness even when demo scripts don't
+// inspect them.
+#![allow(dead_code)]
+
 use std::collections::HashSet;
 use glam::Vec3;
 use crate::core::EntityId;
@@ -176,7 +181,6 @@ pub enum CollisionEventKind {
 }
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct CollisionEvent {
     pub entity: EntityId,
     pub other: EntityId,

@@ -295,6 +295,7 @@ impl World {
         self.transforms[id.index as usize].as_mut()
     }
 
+    #[allow(dead_code)] // Quartet completion: kept for symmetry with the other component setters.
     pub fn remove_transform(&mut self, id: EntityId) {
         if self.is_alive(id) { self.transforms[id.index as usize] = None; }
     }
@@ -397,17 +398,6 @@ impl World {
 
     pub fn remove_rigid_body(&mut self, id: EntityId) {
         if self.is_alive(id) { self.rigid_bodies[id.index as usize] = None; }
-    }
-
-    #[allow(dead_code)]
-    pub fn rigid_bodies_iter(&self) -> impl Iterator<Item = (EntityId, &RigidBody)> + '_ {
-        self.rigid_bodies.iter().enumerate().filter_map(|(i, rb)| {
-            if self.alive[i] {
-                rb.as_ref().map(|rb| (EntityId::new(i as u32, self.generations[i]), rb))
-            } else {
-                None
-            }
-        })
     }
 
     // ---- Collider ----
@@ -531,7 +521,11 @@ impl World {
     }
 
     // ---- TypeMap: custom components ----
-
+    //
+    // The TypeMap-backed custom component API is public so user scripts can
+    // attach runtime-only data (tags, transient state) to entities. It is
+    // intentionally kept even when no demo script exercises it.
+    #[allow(dead_code)]
     pub fn add_custom<T: Any>(&mut self, id: EntityId, comp: T) {
         if !self.is_alive(id) { return; }
         let type_id = TypeId::of::<T>();
@@ -543,6 +537,7 @@ impl World {
         vec[id.index as usize] = Some(Box::new(comp));
     }
 
+    #[allow(dead_code)]
     pub fn get_custom<T: Any>(&self, id: EntityId) -> Option<&T> {
         if !self.is_alive(id) { return None; }
         self.custom.get(&TypeId::of::<T>())
@@ -550,6 +545,7 @@ impl World {
             .and_then(|b| b.downcast_ref::<T>())
     }
 
+    #[allow(dead_code)]
     pub fn get_custom_mut<T: Any>(&mut self, id: EntityId) -> Option<&mut T> {
         if !self.is_alive(id) { return None; }
         self.custom.get_mut(&TypeId::of::<T>())
@@ -557,6 +553,7 @@ impl World {
             .and_then(|b| b.downcast_mut::<T>())
     }
 
+    #[allow(dead_code)]
     pub fn remove_custom<T: Any>(&mut self, id: EntityId) {
         if !self.is_alive(id) { return; }
         if let Some(vec) = self.custom.get_mut(&TypeId::of::<T>()) {

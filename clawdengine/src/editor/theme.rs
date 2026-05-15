@@ -8,8 +8,6 @@ pub const BG_MANTLE:   Color32 = Color32::from_rgb(0x18, 0x18, 0x25);
 pub const BG_BASE:     Color32 = Color32::from_rgb(0x1E, 0x1E, 0x2E);
 pub const BG_SURFACE0: Color32 = Color32::from_rgb(0x31, 0x32, 0x44);
 pub const BG_SURFACE1: Color32 = Color32::from_rgb(0x45, 0x47, 0x5A);
-#[allow(dead_code)]
-pub const BG_SURFACE2: Color32 = Color32::from_rgb(0x58, 0x5B, 0x70);
 
 // Text
 pub const TEXT_PRIMARY:  Color32 = Color32::from_rgb(0xCD, 0xD6, 0xF4);
@@ -30,6 +28,17 @@ pub const WARNING: Color32 = Color32::from_rgb(0xF9, 0xE2, 0xAF);
 pub const AXIS_X: Color32 = Color32::from_rgb(0xDC, 0x50, 0x50);
 pub const AXIS_Y: Color32 = Color32::from_rgb(0x50, 0xBE, 0x50);
 pub const AXIS_Z: Color32 = Color32::from_rgb(0x50, 0x78, 0xDC);
+
+// Additional Catppuccin Mocha accents (used by inspector & viewport icons).
+pub const MAUVE: Color32 = Color32::from_rgb(0xCB, 0xA6, 0xF7);
+pub const TEAL:  Color32 = Color32::from_rgb(0x94, 0xE2, 0xD5);
+pub const PEACH: Color32 = Color32::from_rgb(0xFA, 0xB3, 0x87);
+pub const SKY:   Color32 = Color32::from_rgb(0x89, 0xDC, 0xEB);
+
+// Component-section accents referenced by the inspector panel.
+pub const COMPONENT_MESH:      Color32 = TEAL;   // pink-ish mesh accent
+pub const COMPONENT_MATERIAL:  Color32 = Color32::from_rgb(0xF5, 0xC2, 0xE7); // pink
+pub const COMPONENT_RIGIDBODY: Color32 = PEACH;
 
 pub fn apply_theme(ctx: &egui::Context) {
     let mut style = (*ctx.style()).clone();
