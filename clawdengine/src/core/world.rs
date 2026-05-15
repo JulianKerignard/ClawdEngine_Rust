@@ -599,11 +599,24 @@ impl World {
         self.canvases = snap.canvases;
         self.parents = snap.parents;
         self.children = snap.children;
-        // Rebuild free list from alive flags
+        // Rebuild free list from alive flags.
         self.free_list.clear();
         for (i, &alive) in self.alive.iter().enumerate() {
             if !alive {
                 self.free_list.push(i as u32);
+            }
+        }
+        // Custom (TypeMap) components are not snapshot-able (Box<dyn Any> has
+        // no Clone). Drop entries for slots that the restore marked dead so a
+        // re-spawn at the same index can't observe a "ghost" component left
+        // over from a previously destroyed entity.
+        for vec in self.custom.values_mut() {
+            // Truncate / extend to match the current alive length.
+            vec.resize_with(self.alive.len(), || None);
+            for (i, slot) in vec.iter_mut().enumerate() {
+                if !self.alive.get(i).copied().unwrap_or(false) {
+                    *slot = None;
+                }
             }
         }
     }

@@ -111,7 +111,7 @@ impl<'a> EditorTabViewer<'a> {
         // ---- Transform ----
         if self.world.get_transform(eid).is_some() {
             component_section(ui, "transform", "T", "Transform", theme::ACCENT, false, |ui| {
-                let t = self.world.get_transform_mut(eid).unwrap();
+                let Some(t) = self.world.get_transform_mut(eid) else { return; };
 
                 ui.label(egui::RichText::new("Position").color(theme::TEXT_DISABLED).small());
                 ui.horizontal(|ui| {
@@ -152,7 +152,7 @@ impl<'a> EditorTabViewer<'a> {
         // ---- Material ----
         if self.world.get_material(eid).is_some() {
             let remove_mat = component_section(ui, "material", "M", "Material", MAT_ACCENT, true, |ui| {
-                let m = self.world.get_material_mut(eid).unwrap();
+                let Some(m) = self.world.get_material_mut(eid) else { return; };
 
                 // Surface properties
                 ui.label(egui::RichText::new("Surface").color(theme::TEXT_DISABLED).small());
@@ -235,7 +235,7 @@ impl<'a> EditorTabViewer<'a> {
         // ---- Light ----
         if self.world.get_light(eid).is_some() {
             let remove_light = component_section(ui, "light", "L", "Light", theme::WARNING, true, |ui| {
-                let l = self.world.get_light_mut(eid).unwrap();
+                let Some(l) = self.world.get_light_mut(eid) else { return; };
 
                 property_row(ui, "Kind", |ui| {
                     ComboBox::from_id_salt("light_kind")
@@ -291,7 +291,7 @@ impl<'a> EditorTabViewer<'a> {
         // ---- MeshRenderer ----
         if self.world.get_mesh_renderer(eid).is_some() {
             let remove_mr = component_section(ui, "mesh_renderer", "R", "MeshRenderer", MESH_ACCENT, true, |ui| {
-                let mr = self.world.get_mesh_renderer_mut(eid).unwrap();
+                let Some(mr) = self.world.get_mesh_renderer_mut(eid) else { return; };
                 property_row(ui, "Visible", |ui| {
                     ui.checkbox(&mut mr.visible, "");
                 });
@@ -313,7 +313,7 @@ impl<'a> EditorTabViewer<'a> {
         // ---- RigidBody ----
         if self.world.get_rigid_body(eid).is_some() {
             let remove_rb = component_section(ui, "rigid_body", "P", "RigidBody", RB_ACCENT, true, |ui| {
-                let rb = self.world.get_rigid_body_mut(eid).unwrap();
+                let Some(rb) = self.world.get_rigid_body_mut(eid) else { return; };
                 property_row(ui, "Mass", |ui| {
                     ui.add(DragValue::new(&mut rb.mass).speed(0.1).range(0.01..=f32::MAX));
                 });
@@ -344,7 +344,7 @@ impl<'a> EditorTabViewer<'a> {
         // ---- Collider ----
         if self.world.get_collider(eid).is_some() {
             let remove_col = component_section(ui, "collider", "C", "Collider", theme::ACCENT, true, |ui| {
-                let col = self.world.get_collider_mut(eid).unwrap();
+                let Some(col) = self.world.get_collider_mut(eid) else { return; };
                 property_row(ui, "Shape", |ui| {
                     egui::ComboBox::from_id_salt("collider_shape")
                         .selected_text(match col.shape {
@@ -394,7 +394,7 @@ impl<'a> EditorTabViewer<'a> {
         // ---- Camera ----
         if self.world.get_camera(eid).is_some() {
             let remove_cam = component_section(ui, "camera", "Cam", "Camera", theme::SKY, true, |ui| {
-                let cam = self.world.get_camera_mut(eid).unwrap();
+                let Some(cam) = self.world.get_camera_mut(eid) else { return; };
                 property_row(ui, "FOV (deg)", |ui| {
                     let mut fov_deg = cam.fov_y.to_degrees();
                     if ui.add(DragValue::new(&mut fov_deg).speed(0.5).range(10.0..=160.0)).changed() {
@@ -420,7 +420,7 @@ impl<'a> EditorTabViewer<'a> {
         // ---- AudioListener ----
         if self.world.get_audio_listener(eid).is_some() {
             let remove_al = component_section(ui, "audio_listener", "AL", "AudioListener", theme::MAUVE, true, |ui| {
-                let al = self.world.get_audio_listener_mut(eid).unwrap();
+                let Some(al) = self.world.get_audio_listener_mut(eid) else { return; };
                 property_row(ui, "Active", |ui| {
                     ui.checkbox(&mut al.active, "");
                 });
@@ -437,7 +437,7 @@ impl<'a> EditorTabViewer<'a> {
         // ---- AudioSource ----
         if self.world.get_audio_source(eid).is_some() {
             let remove_audio = component_section(ui, "audio", "A", "AudioSource", theme::WARNING, true, |ui| {
-                let audio = self.world.get_audio_source_mut(eid).unwrap();
+                let Some(audio) = self.world.get_audio_source_mut(eid) else { return; };
 
                 property_row(ui, "File", |ui| {
                     let mut remove = false;
@@ -516,7 +516,7 @@ impl<'a> EditorTabViewer<'a> {
         // ---- Canvas ----
         if self.world.get_canvas(eid).is_some() {
             let remove_cv = component_section(ui, "canvas", "Cv", "Canvas", theme::MAUVE, true, |ui| {
-                let cv = self.world.get_canvas_mut(eid).unwrap();
+                let Some(cv) = self.world.get_canvas_mut(eid) else { return; };
                 property_row(ui, "Width", |ui| {
                     ui.add(DragValue::new(&mut cv.width).speed(1.0).range(100.0..=3840.0));
                 });
@@ -536,7 +536,7 @@ impl<'a> EditorTabViewer<'a> {
         // ---- UiElement ----
         if self.world.get_ui_element(eid).is_some() {
             let remove_ui = component_section(ui, "ui_element", "U", "UiElement", theme::MAUVE, true, |ui| {
-                let el = self.world.get_ui_element_mut(eid).unwrap();
+                let Some(el) = self.world.get_ui_element_mut(eid) else { return; };
 
                 property_row(ui, "Kind", |ui| {
                     ComboBox::from_id_salt("ui_kind")

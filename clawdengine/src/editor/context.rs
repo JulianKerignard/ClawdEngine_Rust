@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::path::PathBuf;
 
 use glam::{Quat, Vec3};
@@ -115,44 +116,44 @@ pub struct UndoEntry {
 const UNDO_MAX: usize = 32;
 
 pub struct UndoStack {
-    undo: Vec<UndoEntry>,
-    redo: Vec<UndoEntry>,
+    undo: VecDeque<UndoEntry>,
+    redo: VecDeque<UndoEntry>,
 }
 
 impl UndoStack {
     pub fn new() -> Self {
-        Self { undo: Vec::new(), redo: Vec::new() }
+        Self { undo: VecDeque::with_capacity(UNDO_MAX), redo: VecDeque::with_capacity(UNDO_MAX) }
     }
 
     pub fn push(&mut self, snapshot: WorldSnapshot, selected: Vec<EntityId>) {
         self.redo.clear();
         if self.undo.len() >= UNDO_MAX {
-            self.undo.remove(0);
+            self.undo.pop_front();
         }
-        self.undo.push(UndoEntry { snapshot, selected });
+        self.undo.push_back(UndoEntry { snapshot, selected });
     }
 
     pub fn pop(&mut self) -> Option<UndoEntry> {
-        self.undo.pop()
+        self.undo.pop_back()
     }
 
     pub fn push_redo(&mut self, snapshot: WorldSnapshot, selected: Vec<EntityId>) {
         if self.redo.len() >= UNDO_MAX {
-            self.redo.remove(0);
+            self.redo.pop_front();
         }
-        self.redo.push(UndoEntry { snapshot, selected });
+        self.redo.push_back(UndoEntry { snapshot, selected });
     }
 
     pub fn pop_redo(&mut self) -> Option<UndoEntry> {
-        self.redo.pop()
+        self.redo.pop_back()
     }
 
     /// Push into undo stack WITHOUT clearing redo (used by process_redo)
     pub fn push_undo_only(&mut self, snapshot: WorldSnapshot, selected: Vec<EntityId>) {
         if self.undo.len() >= UNDO_MAX {
-            self.undo.remove(0);
+            self.undo.pop_front();
         }
-        self.undo.push(UndoEntry { snapshot, selected });
+        self.undo.push_back(UndoEntry { snapshot, selected });
     }
 
     pub fn can_undo(&self) -> bool { !self.undo.is_empty() }

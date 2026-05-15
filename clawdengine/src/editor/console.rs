@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -28,7 +29,7 @@ pub struct LogEntry {
 }
 
 struct LogBufferInner {
-    entries: Vec<LogEntry>,
+    entries: VecDeque<LogEntry>,
     start_time: Instant,
     max_entries: usize,
     error_count: u32,
@@ -45,7 +46,7 @@ impl LogBuffer {
     fn new(max_entries: usize) -> Self {
         Self {
             inner: Arc::new(Mutex::new(LogBufferInner {
-                entries: Vec::with_capacity(256),
+                entries: VecDeque::with_capacity(max_entries),
                 start_time: Instant::now(),
                 max_entries,
                 error_count: 0,
@@ -67,21 +68,23 @@ impl LogBuffer {
         }
 
         if inner.entries.len() >= inner.max_entries {
-            inner.entries.remove(0);
+            inner.entries.pop_front();
         }
-        inner.entries.push(LogEntry {
+        inner.entries.push_back(LogEntry {
             level,
             message,
             timestamp_secs,
         });
     }
 
-    pub fn snapshot(&self) -> Vec<LogEntry> {
-        self.inner
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .entries
-            .clone()
+    /// Borrow the entries slice under the buffer lock and run `f` on it.
+    /// Avoids cloning the full Vec every frame for the console panel.
+    pub fn with_entries<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&VecDeque<LogEntry>) -> R,
+    {
+        let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        f(&inner.entries)
     }
 
     pub fn clear(&self) {
