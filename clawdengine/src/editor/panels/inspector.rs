@@ -4,7 +4,8 @@ use glam::EulerRot;
 use crate::core::LightKind;
 use crate::editor::context::ComponentKind;
 use crate::editor::layout::{
-    EditorTabViewer, TextureSlotAction, axis_drag, component_section, property_row, texture_slot,
+    EditorTabViewer, TextureSlotAction, component_section, property_row,
+    texture_slot, vec3_drag, vec3_drag_array,
 };
 use crate::editor::theme;
 
@@ -15,10 +16,6 @@ const RB_ACCENT: egui::Color32 = theme::COMPONENT_RIGIDBODY;
 
 impl<'a> EditorTabViewer<'a> {
     pub(crate) fn show_inspector(&mut self, ui: &mut egui::Ui) {
-        let col_r = theme::AXIS_X;
-        let col_g = theme::AXIS_Y;
-        let col_b = theme::AXIS_Z;
-
         ui.horizontal(|ui| {
             ui.strong("Inspector");
             if self.editor_ctx.play_mode {
@@ -114,24 +111,12 @@ impl<'a> EditorTabViewer<'a> {
                 let Some(t) = self.world.get_transform_mut(eid) else { return; };
 
                 ui.label(egui::RichText::new("Position").color(theme::TEXT_DISABLED).small());
-                ui.horizontal(|ui| {
-                    axis_drag(ui, "X", col_r, &mut t.position.x, 0.05);
-                    axis_drag(ui, "Y", col_g, &mut t.position.y, 0.05);
-                    axis_drag(ui, "Z", col_b, &mut t.position.z, 0.05);
-                });
+                vec3_drag(ui, &mut t.position, 0.05);
 
                 let (rx, ry, rz) = t.rotation.to_euler(EulerRot::XYZ);
                 let mut deg = [rx.to_degrees(), ry.to_degrees(), rz.to_degrees()];
                 ui.label(egui::RichText::new("Rotation").color(theme::TEXT_DISABLED).small());
-                let rot_changed = ui
-                    .horizontal(|ui| {
-                        let cx = axis_drag(ui, "X", col_r, &mut deg[0], 0.5);
-                        let cy = axis_drag(ui, "Y", col_g, &mut deg[1], 0.5);
-                        let cz = axis_drag(ui, "Z", col_b, &mut deg[2], 0.5);
-                        cx || cy || cz
-                    })
-                    .inner;
-                if rot_changed {
+                if vec3_drag_array(ui, &mut deg, 0.5) {
                     t.rotation = glam::Quat::from_euler(
                         EulerRot::XYZ,
                         deg[0].to_radians(),
@@ -141,11 +126,7 @@ impl<'a> EditorTabViewer<'a> {
                 }
 
                 ui.label(egui::RichText::new("Scale").color(theme::TEXT_DISABLED).small());
-                ui.horizontal(|ui| {
-                    axis_drag(ui, "X", col_r, &mut t.scale.x, 0.05);
-                    axis_drag(ui, "Y", col_g, &mut t.scale.y, 0.05);
-                    axis_drag(ui, "Z", col_b, &mut t.scale.z, 0.05);
-                });
+                vec3_drag(ui, &mut t.scale, 0.05);
             });
         }
 
@@ -323,17 +304,9 @@ impl<'a> EditorTabViewer<'a> {
 
                 ui.add_space(2.0);
                 ui.label(egui::RichText::new("Velocity").color(theme::TEXT_DISABLED).small());
-                ui.horizontal(|ui| {
-                    axis_drag(ui, "X", col_r, &mut rb.velocity.x, 0.1);
-                    axis_drag(ui, "Y", col_g, &mut rb.velocity.y, 0.1);
-                    axis_drag(ui, "Z", col_b, &mut rb.velocity.z, 0.1);
-                });
+                vec3_drag(ui, &mut rb.velocity, 0.1);
                 ui.label(egui::RichText::new("Angular Vel.").color(theme::TEXT_DISABLED).small());
-                ui.horizontal(|ui| {
-                    axis_drag(ui, "X", col_r, &mut rb.angular_velocity.x, 0.1);
-                    axis_drag(ui, "Y", col_g, &mut rb.angular_velocity.y, 0.1);
-                    axis_drag(ui, "Z", col_b, &mut rb.angular_velocity.z, 0.1);
-                });
+                vec3_drag(ui, &mut rb.angular_velocity, 0.1);
             });
             if remove_rb {
                 self.editor_ctx.undo_stack.push(self.world.snapshot(), self.editor_ctx.selected_entities.clone());
@@ -357,16 +330,12 @@ impl<'a> EditorTabViewer<'a> {
                         });
                 });
                 property_row(ui, "Center", |ui| {
-                    axis_drag(ui, "X", theme::AXIS_X, &mut col.center.x, 0.01);
-                    axis_drag(ui, "Y", theme::AXIS_Y, &mut col.center.y, 0.01);
-                    axis_drag(ui, "Z", theme::AXIS_Z, &mut col.center.z, 0.01);
+                    vec3_drag(ui, &mut col.center, 0.01);
                 });
                 match col.shape {
                     crate::core::ColliderShape::Box => {
                         property_row(ui, "Half Extents", |ui| {
-                            axis_drag(ui, "X", theme::AXIS_X, &mut col.half_extents.x, 0.01);
-                            axis_drag(ui, "Y", theme::AXIS_Y, &mut col.half_extents.y, 0.01);
-                            axis_drag(ui, "Z", theme::AXIS_Z, &mut col.half_extents.z, 0.01);
+                            vec3_drag(ui, &mut col.half_extents, 0.01);
                         });
                     }
                     crate::core::ColliderShape::Sphere => {

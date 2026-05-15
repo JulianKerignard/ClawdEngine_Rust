@@ -63,6 +63,31 @@ pub fn axis_drag(ui: &mut egui::Ui, label: &str, color: Color32, value: &mut f32
     ui.add(DragValue::new(value).speed(speed).max_decimals(3)).changed()
 }
 
+/// Triple colored XYZ drag values laid out horizontally. Returns true if any
+/// component changed. Wraps `axis_drag` to remove boilerplate at every Vec3
+/// edit site (position, rotation-as-euler, scale, velocity, ...).
+pub fn vec3_drag(ui: &mut egui::Ui, value: &mut glam::Vec3, speed: f32) -> bool {
+    ui.horizontal(|ui| {
+        let cx = axis_drag(ui, "X", theme::AXIS_X, &mut value.x, speed);
+        let cy = axis_drag(ui, "Y", theme::AXIS_Y, &mut value.y, speed);
+        let cz = axis_drag(ui, "Z", theme::AXIS_Z, &mut value.z, speed);
+        cx || cy || cz
+    })
+    .inner
+}
+
+/// Like `vec3_drag` but operates on a [f32; 3] (useful when callers cannot
+/// give up an &mut glam::Vec3, e.g. euler angle scratch buffers).
+pub fn vec3_drag_array(ui: &mut egui::Ui, value: &mut [f32; 3], speed: f32) -> bool {
+    ui.horizontal(|ui| {
+        let cx = axis_drag(ui, "X", theme::AXIS_X, &mut value[0], speed);
+        let cy = axis_drag(ui, "Y", theme::AXIS_Y, &mut value[1], speed);
+        let cz = axis_drag(ui, "Z", theme::AXIS_Z, &mut value[2], speed);
+        cx || cy || cz
+    })
+    .inner
+}
+
 /// Component section card — framed card with icon header + optional remove button.
 /// Returns `true` if the remove button was clicked.
 pub fn component_section(
