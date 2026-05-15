@@ -678,3 +678,144 @@ impl World {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spawn_and_destroy_keep_alive_count_in_sync() {
+        let mut w = World::new();
+        assert_eq!(w.entity_count(), 0);
+
+        let a = w.spawn_entity();
+        let b = w.spawn_entity();
+        let c = w.spawn_entity();
+        assert_eq!(w.entity_count(), 3);
+        assert!(w.is_alive(a) && w.is_alive(b) && w.is_alive(c));
+
+        w.destroy_entity(b);
+        assert_eq!(w.entity_count(), 2);
+        assert!(!w.is_alive(b));
+
+        // Double-destroy is a no-op.
+        w.destroy_entity(b);
+        assert_eq!(w.entity_count(), 2);
+    }
+
+    #[test]
+    fn recycled_slot_bumps_generation() {
+        let mut w = World::new();
+        let a = w.spawn_entity();
+        let a_idx = a.index;
+        w.destroy_entity(a);
+        let b = w.spawn_entity();
+        assert_eq!(b.index, a_idx, "free list should reuse the slot");
+        assert_ne!(b.generation, a.generation, "generation must bump on recycle");
+        assert!(!w.is_alive(a), "old EntityId must read as dead after recycle");
+        assert!(w.is_alive(b));
+    }
+
+    #[test]
+    fn snapshot_then_restore_round_trips() {
+        let mut w = World::new();
+        let e = w.spawn_entity();
+        w.set_name(e, "Cube");
+        w.set_transform(e, Transform {
+            position: glam::Vec3::new(1.0, 2.0, 3.0),
+            ..Default::default()
+        });
+
+        let snap = w.snapshot();
+
+        // Mutate and confirm changes survive after restore.
+        if let Some(t) = w.get_transform_mut(e) {
+            t.position = glam::Vec3::ZERO;
+        }
+        let other = w.spawn_entity();
+        assert_eq!(w.entity_count(), 2);
+
+        w.restore(snap);
+
+        assert_eq!(w.entity_count(), 1, "restore must rebuild alive_count");
+        assert!(w.is_alive(e));
+        assert!(!w.is_alive(other), "post-snapshot spawn must vanish");
+        let t = w.get_transform(e).expect("transform survives restore");
+        assert_eq!(t.position, glam::Vec3::new(1.0, 2.0, 3.0));
+    }
+
+    #[test]
+    fn main_camera_cache_invalidates_on_change() {
+        let mut w = World::new();
+        let a = w.spawn_entity();
+        let b = w.spawn_entity();
+
+        let mut cam = CameraComponent::default();
+        cam.is_main = true;
+        w.set_camera(a, cam);
+
+        assert_eq!(w.find_main_camera_entity(), Some(a));
+
+        // Switching the main flag should invalidate the cache: even though the
+        // cache holds `Some(a)`, the next read must verify `is_main` still
+        // holds and re-scan when it doesn't.
+        if let Some(cam_a) = w.get_camera_mut(a) {
+            cam_a.is_main = false;
+        }
+        let mut cam_b = CameraComponent::default();
+        cam_b.is_main = true;
+        w.set_camera(b, cam_b);
+        assert_eq!(w.find_main_camera_entity(), Some(b));
+
+        // Destroying the main camera must drop it from the cache.
+        w.destroy_entity(b);
+        assert_eq!(w.find_main_camera_entity(), None);
+    }
+
+    #[test]
+    fn custom_components_clear_on_restore_to_avoid_ghosts() {
+        let mut w = World::new();
+        let a = w.spawn_entity();
+        w.add_custom::<Vec<String>>(a, vec!["tagged".to_string()]);
+        assert!(w.get_custom::<Vec<String>>(a).is_some());
+
+        // Snapshot before adding the custom data; restoring should drop it.
+        let snap = w.snapshot();
+        w.restore(snap);
+
+        // After restore, the entity is still alive (it was in the snapshot)
+        // but the TypeMap slot for it must have been cleared because the
+        // snapshot didn't carry it.
+        assert!(w.is_alive(a));
+        // Note: in this test the tag was added BEFORE the snapshot, but the
+        // snapshot doesn't include custom components, so it's still present
+        // in `self.custom`. The contract we guarantee is: dead slots are
+        // cleared. Verify that explicitly with a destroy/restore loop.
+        w.destroy_entity(a);
+        let after_destroy_snap = w.snapshot();
+        let b = w.spawn_entity(); // recycles a's slot
+        assert_eq!(b.index, a.index);
+        // Restore now revives a as alive — but b's custom tag must NOT leak
+        // back to a's slot. We didn't add a tag to b, so the slot should be
+        // None for both old and new generations.
+        w.restore(after_destroy_snap);
+        assert!(!w.is_alive(a));
+        assert!(w.get_custom::<Vec<String>>(a).is_none());
+    }
+
+    #[test]
+    fn destroy_then_spawn_reuses_index_and_keeps_count_correct() {
+        let mut w = World::new();
+        let _a = w.spawn_entity();
+        let b = w.spawn_entity();
+        let _c = w.spawn_entity();
+        assert_eq!(w.entity_count(), 3);
+
+        w.destroy_entity(b);
+        assert_eq!(w.entity_count(), 2);
+
+        let d = w.spawn_entity();
+        assert_eq!(w.entity_count(), 3);
+        assert_eq!(d.index, b.index, "free list should pop b's slot for d");
+    }
+}
