@@ -35,6 +35,7 @@ struct LogBufferInner {
     error_count: u32,
     warn_count: u32,
     info_count: u32,
+    debug_count: u32,
 }
 
 #[derive(Clone)]
@@ -52,6 +53,7 @@ impl LogBuffer {
                 error_count: 0,
                 warn_count: 0,
                 info_count: 0,
+                debug_count: 0,
             })),
         }
     }
@@ -64,7 +66,7 @@ impl LogBuffer {
             LogLevel::Error => inner.error_count += 1,
             LogLevel::Warn => inner.warn_count += 1,
             LogLevel::Info => inner.info_count += 1,
-            LogLevel::Debug => {}
+            LogLevel::Debug => inner.debug_count += 1,
         }
 
         if inner.entries.len() >= inner.max_entries {
@@ -93,11 +95,13 @@ impl LogBuffer {
         inner.error_count = 0;
         inner.warn_count = 0;
         inner.info_count = 0;
+        inner.debug_count = 0;
     }
 
-    pub fn counts(&self) -> (u32, u32, u32) {
+    /// (error, warn, info, debug) running counts.
+    pub fn counts(&self) -> (u32, u32, u32, u32) {
         let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        (inner.error_count, inner.warn_count, inner.info_count)
+        (inner.error_count, inner.warn_count, inner.info_count, inner.debug_count)
     }
 }
 

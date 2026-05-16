@@ -12,7 +12,9 @@ pub const BG_SURFACE1: Color32 = Color32::from_rgb(0x45, 0x47, 0x5A);
 // Text
 pub const TEXT_PRIMARY:  Color32 = Color32::from_rgb(0xCD, 0xD6, 0xF4);
 pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(0xA6, 0xAD, 0xC8);
-pub const TEXT_DISABLED: Color32 = Color32::from_rgb(0x6C, 0x70, 0x86);
+// Catppuccin Overlay2 (was Overlay0 #6C7086 ≈ 3:1 on BG_BASE, below WCAG AA).
+// #9399B2 reaches ≈5:1 on BG_BASE so secondary/disabled labels stay legible.
+pub const TEXT_DISABLED: Color32 = Color32::from_rgb(0x93, 0x99, 0xB2);
 
 // Accent (sapphire blue)
 pub const ACCENT:         Color32 = Color32::from_rgb(0x89, 0xB4, 0xFA);

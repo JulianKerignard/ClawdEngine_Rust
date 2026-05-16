@@ -233,7 +233,7 @@ pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                             ui.add_space(8.0);
                         }
 
-                        let (err_count, warn_count, _) = editor_ctx.log_buffer.counts();
+                        let (err_count, warn_count, _, _) = editor_ctx.log_buffer.counts();
                         if err_count > 0 {
                             ui.label(
                                 egui::RichText::new(format!("{} err", err_count))

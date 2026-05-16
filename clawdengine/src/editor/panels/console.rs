@@ -6,7 +6,8 @@ use crate::editor::theme;
 
 impl<'a> EditorTabViewer<'a> {
     pub(crate) fn show_console(&mut self, ui: &mut egui::Ui) {
-        let (error_count, warn_count, info_count) = self.editor_ctx.log_buffer.counts();
+        let (error_count, warn_count, info_count, debug_count) =
+            self.editor_ctx.log_buffer.counts();
 
         // ---- Toolbar ----
         ui.horizontal(|ui| {
@@ -22,7 +23,7 @@ impl<'a> EditorTabViewer<'a> {
             filter_toggle(ui, "Error", error_count, theme::ERROR, &mut self.editor_ctx.console_filter_error);
             filter_toggle(ui, "Warn", warn_count, theme::WARNING, &mut self.editor_ctx.console_filter_warn);
             filter_toggle(ui, "Info", info_count, theme::SUCCESS, &mut self.editor_ctx.console_filter_info);
-            filter_toggle(ui, "Debug", 0, theme::TEXT_DISABLED, &mut self.editor_ctx.console_filter_debug);
+            filter_toggle(ui, "Debug", debug_count, theme::TEXT_DISABLED, &mut self.editor_ctx.console_filter_debug);
         });
 
         ui.separator();

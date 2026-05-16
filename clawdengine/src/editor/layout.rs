@@ -63,6 +63,15 @@ pub fn axis_drag(ui: &mut egui::Ui, label: &str, color: Color32, value: &mut f32
     ui.add(DragValue::new(value).speed(speed).max_decimals(3)).changed()
 }
 
+/// Replace any non-finite component (NaN / ±Inf) with `fallback`. Used to
+/// keep transforms sane after a paste or runaway drag would otherwise poison
+/// the model matrix.
+pub fn sanitize_vec3(v: &mut glam::Vec3, fallback: f32) {
+    if !v.x.is_finite() { v.x = fallback; }
+    if !v.y.is_finite() { v.y = fallback; }
+    if !v.z.is_finite() { v.z = fallback; }
+}
+
 /// Triple colored XYZ drag values laid out horizontally. Returns true if any
 /// component changed. Wraps `axis_drag` to remove boilerplate at every Vec3
 /// edit site (position, rotation-as-euler, scale, velocity, ...).
@@ -306,12 +315,6 @@ pub fn texture_slot(
                     ui.label(egui::RichText::new("None").color(theme::TEXT_DISABLED).size(11.0));
                 }
             });
-            let browse = ui.small_button("Browse...");
-            if browse.clicked() {
-                action = TextureSlotAction::BrowseClicked;
-            }
-            // Return browse response for popup attachment
-            ui.data_mut(|d| d.insert_temp(egui::Id::new(format!("browse_resp_{}", label)), browse));
         });
     });
 
@@ -322,7 +325,6 @@ pub fn texture_slot(
 pub enum TextureSlotAction {
     None,
     Remove,
-    BrowseClicked,
 }
 
 fn deduplicate_scene_name(base: &str) -> String {
