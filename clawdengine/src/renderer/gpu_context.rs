@@ -489,6 +489,22 @@ impl GpuContext {
             }
         }
 
+        // Eviction: drop cached GPU resources for slots that are no longer
+        // renderable this frame (entity destroyed, mesh removed, made
+        // invisible, or slot recycled). Without this the cache only ever
+        // grows — destroyed entities would pin 2 buffers + 2 bind groups in
+        // VRAM forever. The renderable set is small, so a HashSet keyed by
+        // index is cheap; dropping the Option frees the wgpu resources.
+        {
+            let live: std::collections::HashSet<u32> =
+                renderables.iter().map(|(eid, _, _, _)| eid.index).collect();
+            for (i, slot) in scene.entity_cache.iter_mut().enumerate() {
+                if slot.is_some() && !live.contains(&(i as u32)) {
+                    *slot = None;
+                }
+            }
+        }
+
         for (eid, _mesh_id, albedo_id, normal_id) in &renderables {
             let eid = *eid;
             let idx = eid.index as usize;
