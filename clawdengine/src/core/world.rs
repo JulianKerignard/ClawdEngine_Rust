@@ -1,5 +1,5 @@
 use std::any::{Any, TypeId};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
 use super::entity::EntityId;
@@ -66,6 +66,17 @@ pub struct World {
     /// (set to None) whenever cameras change so the next reader recomputes.
     /// `Cell` lets immutable readers populate the cache without `&mut World`.
     main_camera_cache: Cell<Option<EntityId>>,
+
+    /// Monotonic counter bumped on every transform / hierarchy mutation. Used
+    /// to invalidate `wt_cache` in one O(1) write instead of tracking dirty
+    /// flags at every mutation site.
+    transform_epoch: Cell<u64>,
+    /// Memoized world-space transforms keyed by `EntityId.index`. The stored
+    /// `u64` is the `transform_epoch` the cache was last rebuilt for; a
+    /// mismatch means the whole cache is stale and gets cleared lazily on the
+    /// next read. Collapses the recursive `get_world_transform` from
+    /// O(n·depth) per frame to O(n).
+    wt_cache: RefCell<(u64, Vec<Option<Transform>>)>,
 }
 
 impl World {
@@ -91,13 +102,24 @@ impl World {
             children: Vec::new(),
             custom: HashMap::new(),
             main_camera_cache: Cell::new(None),
+            transform_epoch: Cell::new(0),
+            wt_cache: RefCell::new((0, Vec::new())),
         }
+    }
+
+    /// Invalidate the world-transform memo. Cheap (single counter bump);
+    /// called from every transform or hierarchy mutation.
+    #[inline]
+    fn bump_transform_epoch(&self) {
+        self.transform_epoch.set(self.transform_epoch.get().wrapping_add(1));
     }
 
     // ---- Entity lifecycle ----
 
     pub fn spawn_entity(&mut self) -> EntityId {
         self.alive_count += 1;
+        // A recycled slot may have a stale world-transform memo; invalidate.
+        self.bump_transform_epoch();
         if let Some(index) = self.free_list.pop() {
             let idx = index as usize;
             self.generations[idx] += 1;
@@ -152,6 +174,8 @@ impl World {
         let idx = id.index as usize;
         self.alive[idx] = false;
         self.alive_count = self.alive_count.saturating_sub(1);
+        // Destroying detaches hierarchy and frees this slot's transform.
+        self.bump_transform_epoch();
         if self.cameras[idx].is_some() {
             self.main_camera_cache.set(None);
         }
@@ -252,6 +276,8 @@ impl World {
             Some(ch) => ch.push(child),
             None => self.children[pidx] = Some(vec![child]),
         }
+        // Reparenting changes the child subtree's world transforms.
+        self.bump_transform_epoch();
     }
 
     pub fn remove_parent(&mut self, child: EntityId) {
@@ -262,6 +288,7 @@ impl World {
                     ch.retain(|&c| c != child);
                 }
             }
+            self.bump_transform_epoch();
         }
     }
 
@@ -285,20 +312,58 @@ impl World {
     }
 
     pub fn get_world_transform(&self, id: EntityId) -> Option<Transform> {
-        let local = self.get_transform(id)?;
-        match self.get_parent(id) {
-            None => Some(*local),
-            Some(parent_id) => {
-                let parent_world = self.get_world_transform(parent_id)?;
-                Some(combine_transforms(&parent_world, local))
+        if !self.is_alive(id) {
+            return None;
+        }
+        let idx = id.index as usize;
+        let epoch = self.transform_epoch.get();
+
+        // Refresh the cache generation lazily, and try a hit. The borrow is
+        // released before any recursion so re-entrant borrows can't panic.
+        {
+            let mut cache = self.wt_cache.borrow_mut();
+            if cache.0 != epoch {
+                cache.0 = epoch;
+                cache.1.clear();
+                cache.1.resize(self.transforms.len(), None);
+            } else if let Some(slot) = cache.1.get(idx) {
+                if let Some(t) = slot {
+                    return Some(*t);
+                }
             }
         }
+
+        // Miss: compute (recurses without holding the cache borrow).
+        let local = *self.get_transform(id)?;
+        let world = match self.get_parent(id) {
+            None => local,
+            Some(parent_id) => {
+                let parent_world = self.get_world_transform(parent_id)?;
+                combine_transforms(&parent_world, &local)
+            }
+        };
+
+        // Memoize. The epoch may have been left unchanged by the recursion, so
+        // it's still valid to write here.
+        {
+            let mut cache = self.wt_cache.borrow_mut();
+            if cache.0 == epoch {
+                if idx >= cache.1.len() {
+                    cache.1.resize(self.transforms.len(), None);
+                }
+                cache.1[idx] = Some(world);
+            }
+        }
+        Some(world)
     }
 
     // ---- Transform ----
 
     pub fn set_transform(&mut self, id: EntityId, t: Transform) {
-        if self.is_alive(id) { self.transforms[id.index as usize] = Some(t); }
+        if self.is_alive(id) {
+            self.transforms[id.index as usize] = Some(t);
+            self.bump_transform_epoch();
+        }
     }
 
     pub fn get_transform(&self, id: EntityId) -> Option<&Transform> {
@@ -308,12 +373,19 @@ impl World {
 
     pub fn get_transform_mut(&mut self, id: EntityId) -> Option<&mut Transform> {
         if !self.is_alive(id) { return None; }
+        // The caller may mutate position/rotation/scale through this handle,
+        // which would invalidate every descendant's world transform. We can't
+        // observe the write, so conservatively invalidate now.
+        self.bump_transform_epoch();
         self.transforms[id.index as usize].as_mut()
     }
 
     #[allow(dead_code)] // Quartet completion: kept for symmetry with the other component setters.
     pub fn remove_transform(&mut self, id: EntityId) {
-        if self.is_alive(id) { self.transforms[id.index as usize] = None; }
+        if self.is_alive(id) {
+            self.transforms[id.index as usize] = None;
+            self.bump_transform_epoch();
+        }
     }
 
     pub fn transforms_iter(&self) -> impl Iterator<Item = (EntityId, &Transform)> + '_ {
@@ -663,6 +735,8 @@ impl World {
         self.alive_count = alive_count;
         // Camera cache: cameras may have moved during the restore.
         self.main_camera_cache.set(None);
+        // Every transform/hierarchy slot was just replaced wholesale.
+        self.bump_transform_epoch();
         // Custom (TypeMap) components are not snapshot-able (Box<dyn Any> has
         // no Clone). Drop entries for slots that the restore marked dead so a
         // re-spawn at the same index can't observe a "ghost" component left
@@ -817,5 +891,66 @@ mod tests {
         let d = w.spawn_entity();
         assert_eq!(w.entity_count(), 3);
         assert_eq!(d.index, b.index, "free list should pop b's slot for d");
+    }
+
+    #[test]
+    fn world_transform_composes_parent_chain() {
+        let mut w = World::new();
+        let parent = w.spawn_entity();
+        let child = w.spawn_entity();
+        w.set_transform(parent, Transform {
+            position: glam::Vec3::new(10.0, 0.0, 0.0),
+            ..Default::default()
+        });
+        w.set_transform(child, Transform {
+            position: glam::Vec3::new(0.0, 5.0, 0.0),
+            ..Default::default()
+        });
+        w.set_parent(child, parent);
+
+        let wt = w.get_world_transform(child).unwrap();
+        assert_eq!(wt.position, glam::Vec3::new(10.0, 5.0, 0.0));
+
+        // Second call hits the memo and must return the same value.
+        let wt2 = w.get_world_transform(child).unwrap();
+        assert_eq!(wt2.position, glam::Vec3::new(10.0, 5.0, 0.0));
+    }
+
+    #[test]
+    fn world_transform_cache_invalidates_on_parent_move() {
+        let mut w = World::new();
+        let parent = w.spawn_entity();
+        let child = w.spawn_entity();
+        w.set_transform(parent, Transform::default());
+        w.set_transform(child, Transform {
+            position: glam::Vec3::new(1.0, 0.0, 0.0),
+            ..Default::default()
+        });
+        w.set_parent(child, parent);
+
+        // Prime the cache.
+        assert_eq!(
+            w.get_world_transform(child).unwrap().position,
+            glam::Vec3::new(1.0, 0.0, 0.0)
+        );
+
+        // Move the parent via the &mut handle — must invalidate the child's
+        // memoized world transform.
+        if let Some(pt) = w.get_transform_mut(parent) {
+            pt.position = glam::Vec3::new(0.0, 100.0, 0.0);
+        }
+        assert_eq!(
+            w.get_world_transform(child).unwrap().position,
+            glam::Vec3::new(1.0, 100.0, 0.0),
+            "child world transform must reflect the moved parent"
+        );
+
+        // Re-parenting to root must also invalidate.
+        w.remove_parent(child);
+        assert_eq!(
+            w.get_world_transform(child).unwrap().position,
+            glam::Vec3::new(1.0, 0.0, 0.0),
+            "after detach the child uses its local transform only"
+        );
     }
 }
