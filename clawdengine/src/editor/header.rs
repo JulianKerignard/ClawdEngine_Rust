@@ -137,9 +137,12 @@ fn show_menubar(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                     egui::Layout::right_to_left(egui::Align::Center),
                     |ui| {
                         if !editor_ctx.scene_name.is_empty() {
+                            // Use a distinct prefix instead of the literal
+                            // word "scene" so that a scene literally named
+                            // "scene" doesn't read "scene • scene".
                             ui.label(
                                 egui::RichText::new(format!(
-                                    "{} \u{2022} scene",
+                                    "Scene: {}",
                                     editor_ctx.scene_name
                                 ))
                                 .color(theme::TEXT_DISABLED)

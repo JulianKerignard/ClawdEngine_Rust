@@ -197,9 +197,15 @@ impl<'a> EditorTabViewer<'a> {
         }
 
         // ---- Stats overlay (styled card, top-left) ----
+        // Offset below the viewport-toolbar (28px tall) so the two don't sit
+        // on top of each other and obscure both sets of text.
         if self.editor_ctx.show_stats_overlay {
             let vp_rect = self.editor_ctx.viewport_rect;
-            let overlay_pos = egui::pos2(vp_rect.left() + 8.0, vp_rect.top() + 8.0);
+            const TOOLBAR_RESERVE: f32 = 36.0;
+            let overlay_pos = egui::pos2(
+                vp_rect.left() + 8.0,
+                vp_rect.top() + TOOLBAR_RESERVE,
+            );
             egui::Area::new(egui::Id::new("stats_overlay"))
                 .fixed_pos(overlay_pos)
                 .order(egui::Order::Foreground)
@@ -253,12 +259,13 @@ impl<'a> EditorTabViewer<'a> {
         }
 
         // ---- Scene gizmo (orientation cube, top-right) ----
+        // Same toolbar offset as the stats overlay (kept in sync).
         {
             let vp_rect = self.editor_ctx.viewport_rect;
             let gizmo_size = 72.0_f32;
             let gizmo_pos = egui::pos2(
                 vp_rect.right() - gizmo_size - 8.0,
-                vp_rect.top() + 8.0,
+                vp_rect.top() + 36.0,
             );
             egui::Area::new(egui::Id::new("scene_gizmo_orient"))
                 .fixed_pos(gizmo_pos)
@@ -275,48 +282,44 @@ impl<'a> EditorTabViewer<'a> {
         }
 
         // ---- Viewport footer (bottom bar) ----
+        // The previous implementation painted into `Pos2::ZERO` via
+        // `painter_at(footer_rect)`, which is *screen* (0,0) — i.e. the very
+        // top of the window. That's why the cam text and hot-reload badge
+        // appeared over the menubar. egui::Area sets the Ui's origin to
+        // `fixed_pos`, but a raw `Painter` uses absolute coords; we now use
+        // the Area's own painter (positioned correctly) anchored on its
+        // allocated content rect.
         {
             let vp_rect = self.editor_ctx.viewport_rect;
             let footer_h = 22.0_f32;
             let footer_pos = egui::pos2(vp_rect.left(), vp_rect.bottom() - footer_h);
+            let footer_w = vp_rect.width();
             egui::Area::new(egui::Id::new("viewport_footer"))
                 .fixed_pos(footer_pos)
                 .order(egui::Order::Foreground)
                 .interactable(false)
                 .show(ui.ctx(), |ui| {
-                    let footer_rect = egui::Rect::from_min_size(
-                        egui::Pos2::ZERO,
-                        egui::vec2(vp_rect.width(), footer_h),
+                    let (rect, _) = ui.allocate_exact_size(
+                        egui::vec2(footer_w, footer_h),
+                        egui::Sense::hover(),
                     );
-                    // Gradient bg: black-alpha at bottom fading to transparent
-                    ui.painter().rect_filled(
-                        egui::Rect::from_min_size(
-                            egui::Pos2::ZERO,
-                            egui::vec2(vp_rect.width(), footer_h),
-                        ),
-                        0.0,
-                        Color32::from_black_alpha(100),
-                    );
+                    let painter = ui.painter();
+                    painter.rect_filled(rect, 0.0, Color32::from_black_alpha(100));
 
                     let mono_sm = egui::FontId::new(10.0, egui::FontFamily::Monospace);
-                    let painter = ui.painter_at(footer_rect);
+                    let cy = rect.center().y;
 
-                    // Left: cam info (mock values — no camera transform accessible here)
-                    let cam_text = "Cam (0.0, 1.0, -5.0) · Yaw 0° · Pitch 0°";
                     painter.text(
-                        egui::pos2(10.0, footer_h * 0.5),
+                        egui::pos2(rect.left() + 10.0, cy),
                         egui::Align2::LEFT_CENTER,
-                        cam_text,
+                        "Cam (0.0, 1.0, -5.0) · Yaw 0° · Pitch 0°",
                         mono_sm.clone(),
                         theme::TEXT_DISABLED,
                     );
-
-                    // Right: hot-reload badge in ACCENT
-                    let hot_text = "● hot-reload · 14 files";
                     painter.text(
-                        egui::pos2(vp_rect.width() - 10.0, footer_h * 0.5),
+                        egui::pos2(rect.right() - 10.0, cy),
                         egui::Align2::RIGHT_CENTER,
-                        hot_text,
+                        "● hot-reload · 14 files",
                         mono_sm,
                         theme::ACCENT,
                     );
