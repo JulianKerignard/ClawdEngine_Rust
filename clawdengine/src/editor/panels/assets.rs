@@ -158,7 +158,8 @@ impl<'a> EditorTabViewer<'a> {
                     let full_path = self.editor_ctx.asset_current_dir.join(name);
                     resp.context_menu(|ui| {
                         if ui.button("Delete").clicked() {
-                            self.editor_ctx.pending_delete_asset = Some(full_path.clone());
+                            // Irreversible (not in undo) — confirm first.
+                            self.editor_ctx.confirm_delete_asset = Some(full_path.clone());
                             ui.close();
                         }
                     });

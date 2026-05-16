@@ -200,6 +200,9 @@ pub struct EditorContext {
     pub pending_create_script: Option<String>,
     /// Pending asset deletion (file or folder path)
     pub pending_delete_asset: Option<PathBuf>,
+    /// Asset awaiting delete confirmation. Asset deletion is irreversible
+    /// (not captured by the undo stack), so it goes through a modal first.
+    pub confirm_delete_asset: Option<PathBuf>,
     /// Script registry: available script types
     pub script_registry: Vec<ScriptRegistryEntry>,
     /// Pending script attach: (entity, registry_index)
@@ -294,6 +297,7 @@ impl EditorContext {
             pending_create_folder: None,
             pending_create_script: None,
             pending_delete_asset: None,
+            confirm_delete_asset: None,
             script_registry: Vec::new(),
             pending_add_script: None,
             pending_load_asset: None,

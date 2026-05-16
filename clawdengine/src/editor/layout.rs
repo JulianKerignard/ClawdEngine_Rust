@@ -420,6 +420,63 @@ impl EditorLayout {
 
         // Asset modal (rendered at egui::Context level, not inside dock)
         Self::show_asset_modal(ctx, editor_ctx);
+        Self::show_confirm_delete_asset_modal(ctx, editor_ctx);
+    }
+
+    /// Confirmation gate for asset deletion. Unlike entity deletion (captured
+    /// by the undo stack), removing a file/folder is irreversible.
+    fn show_confirm_delete_asset_modal(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
+        let Some(path) = editor_ctx.confirm_delete_asset.clone() else {
+            return;
+        };
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("this item")
+            .to_string();
+
+        let mut confirmed = false;
+        let mut cancelled = false;
+
+        egui::Window::new("Delete asset")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.label(
+                    egui::RichText::new(format!("Delete \u{201C}{name}\u{201D}?"))
+                        .strong(),
+                );
+                ui.label(
+                    egui::RichText::new("This permanently removes it from disk and cannot be undone.")
+                        .color(theme::TEXT_DISABLED)
+                        .small(),
+                );
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(egui::RichText::new("Delete").color(theme::ERROR))
+                        .clicked()
+                    {
+                        confirmed = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        cancelled = true;
+                    }
+                });
+                // Esc cancels, Enter does NOT confirm (destructive — require
+                // an explicit click on Delete).
+                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    cancelled = true;
+                }
+            });
+
+        if confirmed {
+            editor_ctx.pending_delete_asset = Some(path);
+            editor_ctx.confirm_delete_asset = None;
+        } else if cancelled {
+            editor_ctx.confirm_delete_asset = None;
+        }
     }
 
     fn show_asset_modal(ctx: &egui::Context, editor_ctx: &mut EditorContext) {

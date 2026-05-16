@@ -43,8 +43,10 @@ pub fn handle_shortcuts(
         }
     }
 
-    // Delete all selected entities
-    if input.is_key_pressed(KeyCode::Delete) || input.is_key_pressed(KeyCode::Backspace) {
+    // Delete all selected entities. Delete only — Backspace was removed
+    // because it's a reflex key (text-edit habit) and triggered scene-tree
+    // deletions by accident. Entity deletion stays undoable via Cmd+Z.
+    if input.is_key_pressed(KeyCode::Delete) {
         if !editor_ctx.selected_entities.is_empty() {
             editor_ctx.pending_delete = editor_ctx.selected_entities.clone();
         }
