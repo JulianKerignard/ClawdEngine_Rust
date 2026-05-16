@@ -1,11 +1,11 @@
-use egui::{ComboBox, CornerRadius, DragValue, Frame, Margin, Slider, Stroke};
+use egui::{ComboBox, CornerRadius, DragValue, Frame, Margin, Stroke};
 use glam::EulerRot;
 
 use crate::core::LightKind;
 use crate::editor::context::ComponentKind;
 use crate::editor::layout::{
-    EditorTabViewer, TextureSlotAction, component_section, property_row,
-    sanitize_vec3, texture_slot, vec3_drag, vec3_drag_array,
+    EditorTabViewer, TextureSlotAction, color_swatch, component_section, property_row,
+    sanitize_vec3, texture_slot, theme_slider, vec3_drag, vec3_drag_array,
 };
 use crate::editor::theme;
 
@@ -86,31 +86,160 @@ impl<'a> EditorTabViewer<'a> {
         if play_mode {
             ui.disable();
         }
-        // ---- Entity Header ----
+        // ---- Entity Header (inspector-head) ----
+        // Layout: [active-toggle 14px] [obj-icon 22px] [name-input flex] [lock btn]
         let (icon, icon_color) = crate::editor::layout::entity_icon(self.world, eid);
         Frame::NONE
-            .fill(theme::BG_MANTLE)
-            .corner_radius(CornerRadius::same(6))
-            .inner_margin(Margin::symmetric(8, 6))
+            .fill(theme::BG_BASE)
+            .inner_margin(Margin { left: 10, right: 8, top: 8, bottom: 8 })
             .stroke(Stroke::new(1.0, theme::BG_SURFACE0))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(icon).color(icon_color).size(18.0));
+                    ui.spacing_mut().item_spacing.x = 8.0;
+
+                    // Active toggle: 14×14 checkmark box
+                    let active_id = ui.make_persistent_id(egui::Id::new("entity_active").with(eid));
+                    let mut active = ui.data_mut(|d| *d.get_persisted_mut_or(active_id, true));
+                    let (toggle_rect, toggle_resp) =
+                        ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::click());
+                    // Draw toggle box
+                    let toggle_fill = if active { theme::ACCENT } else { theme::BG_SURFACE0 };
+                    let toggle_stroke = if active {
+                        Stroke::new(1.5, theme::ACCENT)
+                    } else {
+                        Stroke::new(1.5, theme::TEXT_DISABLED)
+                    };
+                    ui.painter().rect(toggle_rect, CornerRadius::same(3), toggle_fill, toggle_stroke, egui::StrokeKind::Outside);
+                    if active {
+                        // Checkmark path
+                        let c = toggle_rect.center();
+                        let pts = vec![
+                            egui::pos2(c.x - 3.5, c.y),
+                            egui::pos2(c.x - 0.5, c.y + 3.0),
+                            egui::pos2(c.x + 4.0, c.y - 3.0),
+                        ];
+                        ui.painter().add(egui::Shape::line(pts, Stroke::new(2.0, theme::ON_ACCENT)));
+                    }
+                    if toggle_resp.clicked() {
+                        active = !active;
+                        ui.data_mut(|d| d.insert_persisted(active_id, active));
+                    }
+
+                    // Object icon: 22×22 rounded square on BG_SURFACE1
+                    let (icon_rect, _) =
+                        ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::hover());
+                    ui.painter().rect_filled(icon_rect, CornerRadius::same(4), theme::BG_SURFACE1);
+                    ui.painter().text(
+                        icon_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        icon,
+                        egui::FontId::proportional(13.0),
+                        icon_color,
+                    );
+
+                    // Name input (flex, focus ring via frame)
+                    let avail = ui.available_width() - 30.0; // leave room for lock btn
                     if let Some(name) = self.world.get_name_mut(eid) {
-                        ui.add(
+                        let te_resp = ui.add(
                             egui::TextEdit::singleline(name)
                                 .font(egui::TextStyle::Body)
-                                .desired_width(ui.available_width() - 50.0),
+                                .desired_width(avail)
+                                .hint_text("Entity name"),
                         );
+                        // Draw ACCENT focus ring when focused
+                        if te_resp.has_focus() {
+                            ui.painter().rect_stroke(
+                                te_resp.rect.expand(2.0),
+                                CornerRadius::same(5),
+                                Stroke::new(1.5, theme::ACCENT_RING),
+                                egui::StrokeKind::Outside,
+                            );
+                        }
                     }
+
+                    // Lock button (decorative)
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.add(
+                            egui::Button::new(
+                                egui::RichText::new("\u{1F512}").size(11.0).color(theme::TEXT_DISABLED),
+                            )
+                            .frame(false),
+                        );
+                    });
                 });
-                ui.label(
-                    egui::RichText::new(format!("ID: {}", eid.index))
-                        .color(theme::TEXT_DISABLED)
-                        .size(10.0),
-                );
             });
-        ui.add_space(6.0);
+
+        // ---- Tag / Layer row ----
+        {
+            // Determine tag based on entity name
+            let entity_name = self.world.get_name_mut(eid)
+                .map(|n| n.clone())
+                .unwrap_or_default();
+            let tag_label = if entity_name.to_lowercase().contains("player") {
+                "Player"
+            } else {
+                "Untagged"
+            };
+
+            Frame::NONE
+                .fill(theme::BG_BASE)
+                .inner_margin(Margin { left: 10, right: 8, top: 4, bottom: 8 })
+                .stroke(Stroke::new(1.0, theme::BG_SURFACE0))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
+
+                        // Tag pair
+                        ui.label(egui::RichText::new("Tag").color(theme::TEXT_DISABLED).size(11.0));
+                        Frame::NONE
+                            .fill(theme::BG_SURFACE0)
+                            .stroke(Stroke::new(1.0, theme::BG_SURFACE1))
+                            .corner_radius(CornerRadius::same(4))
+                            .inner_margin(Margin::symmetric(6, 2))
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 4.0;
+                                    ui.label(
+                                        egui::RichText::new(tag_label)
+                                            .color(theme::ACCENT)
+                                            .size(11.0),
+                                    );
+                                    ui.label(
+                                        egui::RichText::new("\u{25BE}")
+                                            .color(theme::TEXT_DISABLED)
+                                            .size(9.0),
+                                    );
+                                });
+                            });
+
+                        ui.add_space(8.0);
+
+                        // Layer pair
+                        ui.label(egui::RichText::new("Layer").color(theme::TEXT_DISABLED).size(11.0));
+                        Frame::NONE
+                            .fill(theme::BG_SURFACE0)
+                            .stroke(Stroke::new(1.0, theme::BG_SURFACE1))
+                            .corner_radius(CornerRadius::same(4))
+                            .inner_margin(Margin::symmetric(6, 2))
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 4.0;
+                                    ui.label(
+                                        egui::RichText::new("Default")
+                                            .color(theme::TEXT_SECONDARY)
+                                            .size(11.0),
+                                    );
+                                    ui.label(
+                                        egui::RichText::new("\u{25BE}")
+                                            .color(theme::TEXT_DISABLED)
+                                            .size(9.0),
+                                    );
+                                });
+                            });
+                    });
+                });
+        }
+        ui.add_space(4.0);
 
         // ---- Transform ----
         if self.world.get_transform(eid).is_some() {
@@ -155,22 +284,22 @@ impl<'a> EditorTabViewer<'a> {
                 ui.label(egui::RichText::new("Surface").color(theme::TEXT_DISABLED).small());
                 property_row(ui, "Color", |ui| {
                     let mut color = [m.albedo.x, m.albedo.y, m.albedo.z];
-                    if ui.color_edit_button_rgb(&mut color).changed() {
+                    if color_swatch(ui, &mut color) {
                         m.albedo = glam::Vec3::new(color[0], color[1], color[2]);
                     }
                 });
                 property_row(ui, "Roughness", |ui| {
-                    ui.add(Slider::new(&mut m.roughness, 0.0..=1.0).show_value(true));
+                    theme_slider(ui, &mut m.roughness, 0.0..=1.0);
                 });
                 property_row(ui, "Metallic", |ui| {
-                    ui.add(Slider::new(&mut m.metallic, 0.0..=1.0).show_value(true));
+                    theme_slider(ui, &mut m.metallic, 0.0..=1.0);
                 });
 
                 ui.add_space(4.0);
                 ui.label(egui::RichText::new("Emission").color(theme::TEXT_DISABLED).small());
                 property_row(ui, "Color", |ui| {
                     let mut em = [m.emission.x, m.emission.y, m.emission.z];
-                    if ui.color_edit_button_rgb(&mut em).changed() {
+                    if color_swatch(ui, &mut em) {
                         m.emission = glam::Vec3::new(em[0], em[1], em[2]);
                     }
                 });
@@ -262,7 +391,7 @@ impl<'a> EditorTabViewer<'a> {
                     let mut inner_deg = l.inner_angle.to_degrees();
                     let mut outer_deg = l.outer_angle.to_degrees();
                     property_row(ui, "Inner", |ui| {
-                        if ui.add(Slider::new(&mut inner_deg, 1.0..=89.0)).changed() {
+                        if theme_slider(ui, &mut inner_deg, 1.0..=89.0) {
                             l.inner_angle = inner_deg.to_radians();
                             if l.inner_angle > l.outer_angle {
                                 l.outer_angle = l.inner_angle;
@@ -270,7 +399,7 @@ impl<'a> EditorTabViewer<'a> {
                         }
                     });
                     property_row(ui, "Outer", |ui| {
-                        if ui.add(Slider::new(&mut outer_deg, 1.0..=89.0)).changed() {
+                        if theme_slider(ui, &mut outer_deg, 1.0..=89.0) {
                             l.outer_angle = outer_deg.to_radians();
                             if l.outer_angle < l.inner_angle {
                                 l.inner_angle = l.outer_angle;
@@ -410,7 +539,7 @@ impl<'a> EditorTabViewer<'a> {
                     ui.checkbox(&mut al.active, "");
                 });
                 property_row(ui, "Volume", |ui| {
-                    ui.add(Slider::new(&mut al.volume, 0.0..=1.0));
+                    theme_slider(ui, &mut al.volume, 0.0..=1.0);
                 });
             });
             if remove_al {
@@ -472,7 +601,7 @@ impl<'a> EditorTabViewer<'a> {
                     });
 
                 property_row(ui, "Volume", |ui| {
-                    ui.add(Slider::new(&mut audio.volume, 0.0..=1.0));
+                    theme_slider(ui, &mut audio.volume, 0.0..=1.0);
                 });
                 property_row(ui, "Pitch", |ui| {
                     ui.add(DragValue::new(&mut audio.pitch).speed(0.01).range(0.5..=2.0));
@@ -548,7 +677,7 @@ impl<'a> EditorTabViewer<'a> {
                     }
                 });
                 property_row(ui, "Alpha", |ui| {
-                    ui.add(Slider::new(&mut el.alpha, 0.0..=1.0));
+                    theme_slider(ui, &mut el.alpha, 0.0..=1.0);
                 });
                 property_row(ui, "Anchor", |ui| {
                     ComboBox::from_id_salt("ui_anchor")
@@ -703,6 +832,54 @@ impl<'a> EditorTabViewer<'a> {
                     }
                 }
             });
+
+        // ---- Footer ----
+        // entity_id 0x{index:08x} in ACCENT mono + "{n} components" in TEXT_DISABLED
+        {
+            let has_mat  = self.world.get_material(eid).is_some();
+            let has_mr   = self.world.get_mesh_renderer(eid).is_some();
+            let has_rb   = self.world.get_rigid_body(eid).is_some();
+            let has_col  = self.world.get_collider(eid).is_some();
+            let has_cam  = self.world.get_camera(eid).is_some();
+            let has_aud  = self.world.get_audio_source(eid).is_some();
+            let has_al   = self.world.get_audio_listener(eid).is_some();
+            let has_ui_e = self.world.get_ui_element(eid).is_some();
+            let has_cv   = self.world.get_canvas(eid).is_some();
+            let has_tr   = self.world.get_transform(eid).is_some();
+            let has_light = self.world.get_light(eid).is_some();
+            let has_scripts_footer = self.scripts.iter().any(|(id, _)| *id == eid);
+            let comp_count = [has_tr, has_mat, has_mr, has_rb, has_col, has_cam,
+                              has_aud, has_al, has_ui_e, has_cv, has_light, has_scripts_footer]
+                .iter()
+                .filter(|&&b| b)
+                .count();
+
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                ui.label(
+                    egui::RichText::new("entity_id")
+                        .color(theme::TEXT_DISABLED)
+                        .monospace()
+                        .size(10.0),
+                );
+                ui.label(
+                    egui::RichText::new(format!("0x{:08x}", eid.index))
+                        .color(theme::ACCENT)
+                        .monospace()
+                        .size(10.0),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(
+                        egui::RichText::new(format!("{} components", comp_count))
+                            .color(theme::TEXT_DISABLED)
+                            .monospace()
+                            .size(10.0),
+                    );
+                });
+            });
+            ui.add_space(4.0);
+        }
 
         }); // ScrollArea
 

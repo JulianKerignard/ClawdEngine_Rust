@@ -246,22 +246,127 @@ pub fn component_section(
     remove
 }
 
-/// Property row with fixed-width label for alignment
+/// Property row with fixed-width label for alignment.
+/// Label column is 116px wide (spec: grid 116px 1fr, gap 6px).
 pub fn property_row(ui: &mut egui::Ui, label: &str, add_contents: impl FnOnce(&mut egui::Ui)) {
     ui.horizontal(|ui| {
         ui.allocate_ui_with_layout(
-            egui::vec2(72.0, ui.spacing().interact_size.y),
+            egui::vec2(116.0, ui.spacing().interact_size.y),
             egui::Layout::left_to_right(egui::Align::Center),
             |ui| {
                 ui.label(
                     egui::RichText::new(label)
                         .color(theme::TEXT_SECONDARY)
-                        .size(12.0),
+                        .size(11.0),
                 );
             },
         );
         add_contents(ui);
     });
+}
+
+/// Custom slider matching the design mockup: 4px track (BG_SURFACE1 bg, ACCENT
+/// fill), 10px knob (TEXT_PRIMARY fill + 2px ACCENT border).
+/// Returns `true` if the value changed.
+pub fn theme_slider(ui: &mut egui::Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>) -> bool {
+    let (min, max) = (*range.start(), *range.end());
+    let span = (max - min).max(f32::EPSILON);
+    let t = ((*value - min) / span).clamp(0.0, 1.0);
+
+    // Allocate the full available width, 16px tall (knob needs ~10px vertical)
+    let desired = egui::vec2(ui.available_width(), 16.0);
+    let (rect, resp) = ui.allocate_exact_size(desired, egui::Sense::click_and_drag());
+
+    // Track geometry: 4px tall, vertically centred
+    let track_y = rect.center().y;
+    let track_rect = egui::Rect::from_min_max(
+        egui::pos2(rect.left(), track_y - 2.0),
+        egui::pos2(rect.right() - 40.0, track_y + 2.0),
+    );
+    let knob_x = track_rect.left() + t * track_rect.width();
+
+    // Interaction: update value on drag/click within the track area
+    let mut changed = false;
+    if resp.dragged() || resp.clicked() {
+        if let Some(pos) = resp.interact_pointer_pos() {
+            let new_t = ((pos.x - track_rect.left()) / track_rect.width()).clamp(0.0, 1.0);
+            let new_val = min + new_t * span;
+            if (*value - new_val).abs() > f32::EPSILON {
+                *value = new_val;
+                changed = true;
+            }
+        }
+    }
+
+    let painter = ui.painter();
+
+    // Track background
+    painter.rect_filled(track_rect, egui::CornerRadius::same(2), theme::BG_SURFACE1);
+    // Track fill (accent)
+    let fill_rect = egui::Rect::from_min_max(
+        track_rect.min,
+        egui::pos2(knob_x.min(track_rect.right()), track_rect.max.y),
+    );
+    painter.rect_filled(fill_rect, egui::CornerRadius::same(2), theme::ACCENT);
+
+    // Knob: 10px circle, TEXT_PRIMARY fill, 2px ACCENT stroke
+    painter.circle(
+        egui::pos2(knob_x, track_y),
+        5.0,
+        theme::TEXT_PRIMARY,
+        egui::Stroke::new(2.0, theme::ACCENT),
+    );
+
+    // Value label on the right (monospace, 11px)
+    let label_rect = egui::Rect::from_min_max(
+        egui::pos2(track_rect.right() + 4.0, rect.top()),
+        egui::pos2(rect.right(), rect.bottom()),
+    );
+    painter.text(
+        label_rect.center(),
+        egui::Align2::CENTER_CENTER,
+        format!("{:.2}", *value),
+        egui::FontId::monospace(10.5),
+        theme::TEXT_SECONDARY,
+    );
+
+    changed
+}
+
+/// Color swatch: small framed rect showing the color + egui color picker popup.
+/// Returns `true` if the color changed.
+pub fn color_swatch(ui: &mut egui::Ui, rgb: &mut [f32; 3]) -> bool {
+    let swatch_size = egui::vec2(28.0, 16.0);
+    let color = egui::Color32::from_rgb(
+        (rgb[0] * 255.0) as u8,
+        (rgb[1] * 255.0) as u8,
+        (rgb[2] * 255.0) as u8,
+    );
+
+    // Outer frame: BG_SURFACE0 bg + hairline border
+    let frame_resp = egui::Frame::NONE
+        .fill(theme::BG_SURFACE0)
+        .stroke(egui::Stroke::new(1.0, theme::BG_SURFACE1))
+        .corner_radius(egui::CornerRadius::same(3))
+        .inner_margin(egui::Margin::same(1))
+        .show(ui, |ui| {
+            let (rect, resp) = ui.allocate_exact_size(swatch_size, egui::Sense::click());
+            ui.painter().rect_filled(rect, egui::CornerRadius::same(2), color);
+            resp
+        });
+
+    let mut changed = false;
+    // Show egui's built-in color picker as a popup on click
+    egui::Popup::from_toggle_button_response(&frame_resp.inner)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .show(|popup_ui: &mut egui::Ui| {
+            popup_ui.set_min_width(220.0);
+            if popup_ui.color_edit_button_rgb(rgb).changed() {
+                changed = true;
+            }
+        });
+
+    changed
 }
 
 /// Texture slot card: placeholder square + filename + remove/browse
