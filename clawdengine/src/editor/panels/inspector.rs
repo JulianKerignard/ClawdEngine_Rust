@@ -5,7 +5,7 @@ use crate::core::LightKind;
 use crate::editor::context::ComponentKind;
 use crate::editor::layout::{
     EditorTabViewer, TextureSlotAction, component_section, property_row,
-    texture_slot, vec3_drag, vec3_drag_array,
+    sanitize_vec3, texture_slot, vec3_drag, vec3_drag_array,
 };
 use crate::editor::theme;
 
@@ -78,7 +78,14 @@ impl<'a> EditorTabViewer<'a> {
             }
         }
 
+        let play_mode = self.editor_ctx.play_mode;
         egui::ScrollArea::vertical().show(ui, |ui| {
+        // In play mode the World is driven by scripts/physics; any inspector
+        // edit would be silently discarded on stop. Disable the whole body so
+        // the user can still read values but not lose work editing them.
+        if play_mode {
+            ui.disable();
+        }
         // ---- Entity Header ----
         let (icon, icon_color) = crate::editor::layout::entity_icon(self.world, eid);
         Frame::NONE
@@ -127,6 +134,15 @@ impl<'a> EditorTabViewer<'a> {
 
                 ui.label(egui::RichText::new("Scale").color(theme::TEXT_DISABLED).small());
                 vec3_drag(ui, &mut t.scale, 0.05);
+
+                // Guard against NaN/Inf (paste, runaway drag) and a zero scale
+                // which would collapse the model matrix and break picking.
+                sanitize_vec3(&mut t.position, 0.0);
+                sanitize_vec3(&mut t.scale, 1.0);
+                const MIN_SCALE: f32 = 1.0e-3;
+                if t.scale.x.abs() < MIN_SCALE { t.scale.x = MIN_SCALE; }
+                if t.scale.y.abs() < MIN_SCALE { t.scale.y = MIN_SCALE; }
+                if t.scale.z.abs() < MIN_SCALE { t.scale.z = MIN_SCALE; }
             });
         }
 
