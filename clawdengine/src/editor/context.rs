@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::path::PathBuf;
 
 use glam::{Quat, Vec3};
@@ -115,44 +116,44 @@ pub struct UndoEntry {
 const UNDO_MAX: usize = 32;
 
 pub struct UndoStack {
-    undo: Vec<UndoEntry>,
-    redo: Vec<UndoEntry>,
+    undo: VecDeque<UndoEntry>,
+    redo: VecDeque<UndoEntry>,
 }
 
 impl UndoStack {
     pub fn new() -> Self {
-        Self { undo: Vec::new(), redo: Vec::new() }
+        Self { undo: VecDeque::with_capacity(UNDO_MAX), redo: VecDeque::with_capacity(UNDO_MAX) }
     }
 
     pub fn push(&mut self, snapshot: WorldSnapshot, selected: Vec<EntityId>) {
         self.redo.clear();
         if self.undo.len() >= UNDO_MAX {
-            self.undo.remove(0);
+            self.undo.pop_front();
         }
-        self.undo.push(UndoEntry { snapshot, selected });
+        self.undo.push_back(UndoEntry { snapshot, selected });
     }
 
     pub fn pop(&mut self) -> Option<UndoEntry> {
-        self.undo.pop()
+        self.undo.pop_back()
     }
 
     pub fn push_redo(&mut self, snapshot: WorldSnapshot, selected: Vec<EntityId>) {
         if self.redo.len() >= UNDO_MAX {
-            self.redo.remove(0);
+            self.redo.pop_front();
         }
-        self.redo.push(UndoEntry { snapshot, selected });
+        self.redo.push_back(UndoEntry { snapshot, selected });
     }
 
     pub fn pop_redo(&mut self) -> Option<UndoEntry> {
-        self.redo.pop()
+        self.redo.pop_back()
     }
 
     /// Push into undo stack WITHOUT clearing redo (used by process_redo)
     pub fn push_undo_only(&mut self, snapshot: WorldSnapshot, selected: Vec<EntityId>) {
         if self.undo.len() >= UNDO_MAX {
-            self.undo.remove(0);
+            self.undo.pop_front();
         }
-        self.undo.push(UndoEntry { snapshot, selected });
+        self.undo.push_back(UndoEntry { snapshot, selected });
     }
 
     pub fn can_undo(&self) -> bool { !self.undo.is_empty() }
@@ -199,6 +200,9 @@ pub struct EditorContext {
     pub pending_create_script: Option<String>,
     /// Pending asset deletion (file or folder path)
     pub pending_delete_asset: Option<PathBuf>,
+    /// Asset awaiting delete confirmation. Asset deletion is irreversible
+    /// (not captured by the undo stack), so it goes through a modal first.
+    pub confirm_delete_asset: Option<PathBuf>,
     /// Script registry: available script types
     pub script_registry: Vec<ScriptRegistryEntry>,
     /// Pending script attach: (entity, registry_index)
@@ -293,6 +297,7 @@ impl EditorContext {
             pending_create_folder: None,
             pending_create_script: None,
             pending_delete_asset: None,
+            confirm_delete_asset: None,
             script_registry: Vec::new(),
             pending_add_script: None,
             pending_load_asset: None,
@@ -327,27 +332,50 @@ impl EditorContext {
         }
     }
 
-    /// Creates the default dock layout: Hierarchy (15%) | Viewport (60%) | Inspector (25%)
+    /// Creates the default dock layout (mockup `232px 1fr 360px` workspace):
+    ///
+    /// ```text
+    /// ┌───────────┬───────────────────────┬───────────┐
+    /// │           │   Viewport / Game     │           │
+    /// │ Hierarchy │───────────────────────│ Inspector │
+    /// │           │   Assets / Console    │           │
+    /// └───────────┴───────────────────────┴───────────┘
+    /// ```
+    ///
+    /// Hierarchy (≈16% width, full height) | center column (Viewport/Game on
+    /// top, Assets/Console as a full-width bottom panel) | Inspector (≈22%
+    /// width, full height).
     pub fn default_dock_state() -> egui_dock::DockState<EditorTab> {
-        let mut dock_state = egui_dock::DockState::new(vec![EditorTab::Viewport, EditorTab::GameView]);
+        let mut dock_state =
+            egui_dock::DockState::new(vec![EditorTab::Viewport, EditorTab::GameView]);
         let surface = dock_state.main_surface_mut();
-        let [_old, _left] = surface.split_left(
+
+        // Hierarchy on the left (~16% of total width), full height. `center`
+        // keeps the remaining ~84%.
+        let [center, _hierarchy] = surface.split_left(
             egui_dock::NodeIndex::root(),
-            0.15,
+            0.16,
             vec![EditorTab::Hierarchy],
         );
-        // After split_left(0.15), root is 85% right. 25/85 ≈ 0.294
-        let [_center, _right] = surface.split_right(
-            egui_dock::NodeIndex::root(),
-            0.294,
+
+        // Inspector on the right, full height. We want ~22% of the *total*
+        // width; the center node only spans ~84%, so the new (right) node must
+        // take 22/84 ≈ 0.262 of it, leaving the center with ≈0.738.
+        let [center, _inspector] = surface.split_right(
+            center,
+            0.738,
             vec![EditorTab::Inspector],
         );
-        // Assets + Console tabs below Hierarchy (left column)
+
+        // Assets + Console as a full-width bottom panel under the *center*
+        // node only (so it does not span the side columns). Viewport/Game keep
+        // ~68% of the height, the bottom panel ~32%.
         let [_top, _bottom] = surface.split_below(
-            _left,
-            0.6,
+            center,
+            0.68,
             vec![EditorTab::Assets, EditorTab::Console],
         );
+
         dock_state
     }
 

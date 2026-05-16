@@ -21,6 +21,28 @@ pub struct GpuContext {
     pub egui_renderer: egui_wgpu::Renderer,
 }
 
+/// Per-entity GPU resources that persist across frames.
+///
+/// Previously the renderer recreated 2 buffers + 2 bind groups per entity per
+/// frame — a wgpu anti-pattern that pressures the driver allocator. We now keep
+/// them in `SceneRenderer.entity_cache` indexed by `EntityId.index`. Uniforms
+/// are refreshed via `queue.write_buffer`; bind groups are only recreated when
+/// the material's texture references actually change.
+pub struct CachedEntityGpu {
+    pub model_buffer: wgpu::Buffer,
+    pub model_bg: wgpu::BindGroup,
+    pub mat_buffer: wgpu::Buffer,
+    pub mat_bg: wgpu::BindGroup,
+    /// Generation of the entity this cache was built for. When a slot is
+    /// recycled, the new entity will have a different generation and we
+    /// rebuild from scratch.
+    generation: u32,
+    /// Material texture ids the bind group currently references. If the user
+    /// changes the albedo or normal map, the bind group must be rebuilt.
+    cached_albedo_id: Option<usize>,
+    cached_normal_id: Option<usize>,
+}
+
 pub struct SceneRenderer {
     pub pipeline: MeshPipeline,
     pub line_pipeline: LinePipeline,
@@ -38,6 +60,10 @@ pub struct SceneRenderer {
     pub game_viewport: Option<ViewportTexture>,
     pub game_camera_buffer: wgpu::Buffer,
     pub game_camera_bind_group: wgpu::BindGroup,
+    /// Persistent GPU cache keyed by `EntityId.index`. Sparse — None for
+    /// indices that never carried a renderable or that have been recycled but
+    /// not yet rebuilt.
+    pub entity_cache: Vec<Option<CachedEntityGpu>>,
 }
 
 fn create_camera_setup(
@@ -144,6 +170,7 @@ impl SceneRenderer {
             game_viewport: None,
             game_camera_buffer,
             game_camera_bind_group,
+            entity_cache: Vec::new(),
         }
     }
 
@@ -408,73 +435,133 @@ impl GpuContext {
 
         scene.line_batch.upload(&self.device, &self.queue);
 
-        // Collect renderable entities and build GPU data
-        let (renderables, per_entity_data) =
-            self.prepare_entity_data(scene, world, selected_entity);
+        // Collect renderable entities and refresh the per-entity GPU cache.
+        let renderables = self.prepare_entity_data(scene, world, selected_entity);
 
         // Execute shadow pass, then main 3D pass
-        self.execute_shadow_pass(encoder, scene, &renderables, &per_entity_data);
+        self.execute_shadow_pass(encoder, scene, &renderables);
         self.execute_main_pass(
             encoder, scene,
             &scene.camera_bind_group,
             &scene.viewport.msaa_color_view,
             &scene.viewport.color_view,
             &scene.viewport.depth_view,
-            &renderables, &per_entity_data,
+            &renderables,
             true,
         )
     }
 
+    /// Walk the world, build the list of renderable entities, and refresh /
+    /// populate per-entity GPU resources in `scene.entity_cache`.
+    ///
+    /// On the steady-state hot path this only writes ~64 bytes per entity to
+    /// existing buffers (one `queue.write_buffer` for model uniforms, one for
+    /// material uniforms). Buffers and bind groups are created once and reused
+    /// across frames; the material bind group is rebuilt only when the
+    /// material's texture references change.
     fn prepare_entity_data<'a>(
         &self,
-        scene: &'a SceneRenderer,
+        scene: &'a mut SceneRenderer,
         world: &'a World,
         selected_entity: Option<EntityId>,
-    ) -> (
-        Vec<(EntityId, &'a crate::core::Transform, usize, Option<&'a crate::core::Material>)>,
-        Vec<(wgpu::BindGroup, wgpu::BindGroup, wgpu::Buffer, wgpu::Buffer)>,
-    ) {
-        let renderables: Vec<_> = world
+    ) -> Vec<(EntityId, usize)> {
+        let renderables: Vec<(EntityId, usize, Option<usize>, Option<usize>)> = world
             .iter_entities()
             .filter_map(|eid| {
-                let transform = world.get_transform(eid)?;
+                let _ = world.get_transform(eid)?;
                 let mesh_renderer = world.get_mesh_renderer(eid)?;
                 if !mesh_renderer.visible {
                     return None;
                 }
                 let mesh_id = mesh_renderer.mesh_id?;
                 let material = world.get_material(eid);
-                Some((eid, transform, mesh_id, material))
+                let albedo_id = material.and_then(|m| m.texture_id);
+                let normal_id = material.and_then(|m| m.normal_map_id);
+                Some((eid, mesh_id, albedo_id, normal_id))
             })
             .collect();
 
-        let per_entity_data: Vec<_> = renderables
-            .iter()
-            .map(|(eid, transform, _mesh_id, material)| {
-                let wt = world.get_world_transform(*eid).unwrap_or(**transform);
-                let model_matrix = glam::Mat4::from_scale_rotation_translation(
-                    wt.scale,
-                    wt.rotation,
-                    wt.position,
-                );
+        // Ensure the cache vector is large enough to index by eid.index.
+        let max_index = renderables.iter().map(|(eid, _, _, _)| eid.index as usize).max();
+        if let Some(mx) = max_index {
+            if mx >= scene.entity_cache.len() {
+                scene.entity_cache.resize_with(mx + 1, || None);
+            }
+        }
 
-                let color = if selected_entity == Some(*eid) {
-                    SELECTION_TINT
-                } else {
-                    [0.0, 0.0, 0.0, 0.0]
-                };
+        // Eviction: drop cached GPU resources for slots that are no longer
+        // renderable this frame (entity destroyed, mesh removed, made
+        // invisible, or slot recycled). Without this the cache only ever
+        // grows — destroyed entities would pin 2 buffers + 2 bind groups in
+        // VRAM forever. The renderable set is small, so a HashSet keyed by
+        // index is cheap; dropping the Option frees the wgpu resources.
+        {
+            let live: std::collections::HashSet<u32> =
+                renderables.iter().map(|(eid, _, _, _)| eid.index).collect();
+            for (i, slot) in scene.entity_cache.iter_mut().enumerate() {
+                if slot.is_some() && !live.contains(&(i as u32)) {
+                    *slot = None;
+                }
+            }
+        }
 
-                let model_uniforms = ModelUniforms {
-                    model: model_matrix.to_cols_array_2d(),
-                    color,
-                };
+        for (eid, _mesh_id, albedo_id, normal_id) in &renderables {
+            let eid = *eid;
+            let idx = eid.index as usize;
 
+            // Compute the per-frame uniform values.
+            let transform = match world.get_transform(eid) {
+                Some(t) => *t,
+                None => continue,
+            };
+            let wt = world.get_world_transform(eid).unwrap_or(transform);
+            let model_matrix = glam::Mat4::from_scale_rotation_translation(
+                wt.scale,
+                wt.rotation,
+                wt.position,
+            );
+            let color = if selected_entity == Some(eid) {
+                SELECTION_TINT
+            } else {
+                [0.0, 0.0, 0.0, 0.0]
+            };
+            let model_uniforms = ModelUniforms {
+                model: model_matrix.to_cols_array_2d(),
+                color,
+            };
+
+            let material = world.get_material(eid);
+            let albedo = material
+                .map(|m| [m.albedo.x, m.albedo.y, m.albedo.z, 1.0])
+                .unwrap_or([0.8, 0.8, 0.8, 1.0]);
+            let emission = material
+                .map(|m| [m.emission.x, m.emission.y, m.emission.z, 0.0])
+                .unwrap_or([0.0, 0.0, 0.0, 0.0]);
+            let mat_uniforms = MaterialUniforms {
+                albedo,
+                roughness: material.map(|m| m.roughness).unwrap_or(0.5),
+                metallic: material.map(|m| m.metallic).unwrap_or(0.0),
+                _pad: [0.0; 2],
+                emission,
+            };
+
+            // Decide whether the cached entry is reusable.
+            let needs_rebuild = match &scene.entity_cache[idx] {
+                None => true,
+                Some(entry) => {
+                    entry.generation != eid.generation
+                        || entry.cached_albedo_id != *albedo_id
+                        || entry.cached_normal_id != *normal_id
+                }
+            };
+
+            if needs_rebuild {
                 let model_buffer =
                     self.device
                         .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                             label: Some("Model Uniform"),
                             contents: bytemuck::cast_slice(&[model_uniforms]),
-                            usage: wgpu::BufferUsages::UNIFORM,
+                            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                         });
 
                 let model_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -486,35 +573,21 @@ impl GpuContext {
                     }],
                 });
 
-                let albedo = material
-                    .map(|m| [m.albedo.x, m.albedo.y, m.albedo.z, 1.0])
-                    .unwrap_or([0.8, 0.8, 0.8, 1.0]);
-                let emission = material
-                    .map(|m| [m.emission.x, m.emission.y, m.emission.z, 0.0])
-                    .unwrap_or([0.0, 0.0, 0.0, 0.0]);
-                let mat_uniforms = MaterialUniforms {
-                    albedo,
-                    roughness: material.map(|m| m.roughness).unwrap_or(0.5),
-                    metallic: material.map(|m| m.metallic).unwrap_or(0.0),
-                    _pad: [0.0; 2],
-                    emission,
-                };
-
                 let mat_buffer =
                     self.device
                         .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                             label: Some("Material Uniform"),
                             contents: bytemuck::cast_slice(&[mat_uniforms]),
-                            usage: wgpu::BufferUsages::UNIFORM,
+                            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                         });
 
-                let gpu_tex = if let Some(tex_id) = material.and_then(|m| m.texture_id) {
+                let gpu_tex = if let Some(tex_id) = *albedo_id {
                     scene.texture_store.get(tex_id)
                 } else {
                     scene.texture_store.get(scene.texture_store.default_id())
                 };
 
-                let gpu_normal = if let Some(nid) = material.and_then(|m| m.normal_map_id) {
+                let gpu_normal = if let Some(nid) = *normal_id {
                     scene.texture_store.get(nid)
                 } else {
                     scene.texture_store.get(scene.texture_store.default_normal_id())
@@ -543,19 +616,36 @@ impl GpuContext {
                     ],
                 });
 
-                (model_bg, mat_bg, model_buffer, mat_buffer)
-            })
-            .collect();
+                scene.entity_cache[idx] = Some(CachedEntityGpu {
+                    model_buffer,
+                    model_bg,
+                    mat_buffer,
+                    mat_bg,
+                    generation: eid.generation,
+                    cached_albedo_id: *albedo_id,
+                    cached_normal_id: *normal_id,
+                });
+            } else {
+                // Reuse existing buffers & bind groups; just refresh the data.
+                let entry = scene.entity_cache[idx].as_ref().unwrap();
+                self.queue
+                    .write_buffer(&entry.model_buffer, 0, bytemuck::cast_slice(&[model_uniforms]));
+                self.queue
+                    .write_buffer(&entry.mat_buffer, 0, bytemuck::cast_slice(&[mat_uniforms]));
+            }
+        }
 
-        (renderables, per_entity_data)
+        renderables
+            .into_iter()
+            .map(|(eid, mesh_id, _, _)| (eid, mesh_id))
+            .collect()
     }
 
     fn execute_shadow_pass(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         scene: &SceneRenderer,
-        renderables: &[(EntityId, &crate::core::Transform, usize, Option<&crate::core::Material>)],
-        per_entity_data: &[(wgpu::BindGroup, wgpu::BindGroup, wgpu::Buffer, wgpu::Buffer)],
+        renderables: &[(EntityId, usize)],
     ) {
         let mut shadow_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Shadow Pass"),
@@ -575,10 +665,12 @@ impl GpuContext {
         shadow_pass.set_pipeline(&scene.shadow_map.pipeline);
         shadow_pass.set_bind_group(0, &scene.shadow_map.light_vp_bind_group, &[]);
 
-        for (i, (_eid, _transform, mesh_id, _material)) in renderables.iter().enumerate() {
+        for (eid, mesh_id) in renderables {
+            let Some(entry) = scene.entity_cache.get(eid.index as usize).and_then(|e| e.as_ref()) else {
+                continue;
+            };
             if let Some(gpu_mesh) = scene.mesh_store.get(*mesh_id) {
-                let (ref model_bg, _, _, _) = per_entity_data[i];
-                shadow_pass.set_bind_group(1, model_bg, &[]);
+                shadow_pass.set_bind_group(1, &entry.model_bg, &[]);
                 shadow_pass.set_vertex_buffer(0, gpu_mesh.vertex_buffer.slice(..));
                 shadow_pass.set_index_buffer(
                     gpu_mesh.index_buffer.slice(..),
@@ -597,8 +689,7 @@ impl GpuContext {
         msaa_view: &wgpu::TextureView,
         resolve_view: &wgpu::TextureView,
         depth_view: &wgpu::TextureView,
-        renderables: &[(EntityId, &crate::core::Transform, usize, Option<&crate::core::Material>)],
-        per_entity_data: &[(wgpu::BindGroup, wgpu::BindGroup, wgpu::Buffer, wgpu::Buffer)],
+        renderables: &[(EntityId, usize)],
         draw_lines: bool,
     ) -> (u32, u32) {
         let mut draw_call_count: u32 = 0;
@@ -643,11 +734,13 @@ impl GpuContext {
         pass.set_bind_group(3, &scene.lights_bind_group, &[]);
         pass.set_bind_group(4, &scene.shadow_map.shadow_bind_group, &[]);
 
-        for (i, (_eid, _transform, mesh_id, _material)) in renderables.iter().enumerate() {
+        for (eid, mesh_id) in renderables {
+            let Some(entry) = scene.entity_cache.get(eid.index as usize).and_then(|e| e.as_ref()) else {
+                continue;
+            };
             if let Some(gpu_mesh) = scene.mesh_store.get(*mesh_id) {
-                let (ref model_bg, ref mat_bg, _, _) = per_entity_data[i];
-                pass.set_bind_group(1, model_bg, &[]);
-                pass.set_bind_group(2, mat_bg, &[]);
+                pass.set_bind_group(1, &entry.model_bg, &[]);
+                pass.set_bind_group(2, &entry.mat_bg, &[]);
                 pass.set_vertex_buffer(0, gpu_mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(
                     gpu_mesh.index_buffer.slice(..),
@@ -681,15 +774,15 @@ impl GpuContext {
     pub fn render_game_view(
         &self,
         encoder: &mut wgpu::CommandEncoder,
-        scene: &SceneRenderer,
+        scene: &mut SceneRenderer,
         world: &World,
     ) -> (u32, u32) {
-        let game_vp = match &scene.game_viewport {
-            Some(vp) => vp,
+        let aspect = match &scene.game_viewport {
+            Some(vp) => vp.aspect_ratio(),
             None => return (0, 0),
         };
 
-        let cam_uniforms = match Self::find_main_camera(world, game_vp.aspect_ratio()) {
+        let cam_uniforms = match Self::find_main_camera(world, aspect) {
             Some(u) => u,
             None => return (0, 0),
         };
@@ -701,13 +794,14 @@ impl GpuContext {
             bytemuck::cast_slice(&[cam_uniforms]),
         );
 
-        // Collect renderables (no selection highlight)
-        let (renderables, per_entity_data) = self.prepare_entity_data(scene, world, None);
+        // Refresh the per-entity GPU cache (no selection highlight in game view).
+        let renderables = self.prepare_entity_data(scene, world, None);
 
-        // Shadow pass
-        self.execute_shadow_pass(encoder, scene, &renderables, &per_entity_data);
+        // From here on we only need an immutable borrow of `scene`.
+        let scene: &SceneRenderer = scene;
+        let game_vp = scene.game_viewport.as_ref().expect("game viewport disappeared mid-frame");
 
-        // Main pass to game viewport using game camera bind group
+        self.execute_shadow_pass(encoder, scene, &renderables);
         self.execute_main_pass(
             encoder,
             scene,
@@ -716,28 +810,26 @@ impl GpuContext {
             &game_vp.color_view,
             &game_vp.depth_view,
             &renderables,
-            &per_entity_data,
             false,
         )
     }
 
     fn find_main_camera(world: &World, aspect: f32) -> Option<super::camera::CameraUniforms> {
-        for eid in world.iter_entities() {
-            let Some(cam) = world.get_camera(eid) else { continue };
-            if !cam.is_main { continue; }
-            let wt = world.get_world_transform(eid)?;
+        // World caches the main-camera EntityId across frames and invalidates
+        // it on any camera mutation, so this is O(1) on the hot path.
+        let eid = world.find_main_camera_entity()?;
+        let cam = world.get_camera(eid)?;
+        let wt = world.get_world_transform(eid)?;
 
-            let fwd = wt.rotation * glam::Vec3::new(0.0, 0.0, -1.0);
-            let eye = wt.position;
-            let target = eye + fwd;
-            let view = glam::Mat4::look_at_rh(eye, target, glam::Vec3::Y);
-            let proj = glam::Mat4::perspective_rh(cam.fov_y, aspect, cam.near, cam.far);
+        let fwd = wt.rotation * glam::Vec3::new(0.0, 0.0, -1.0);
+        let eye = wt.position;
+        let target = eye + fwd;
+        let view = glam::Mat4::look_at_rh(eye, target, glam::Vec3::Y);
+        let proj = glam::Mat4::perspective_rh(cam.fov_y, aspect, cam.near, cam.far);
 
-            return Some(super::camera::CameraUniforms {
-                view_proj: (proj * view).to_cols_array_2d(),
-                eye_position: [eye.x, eye.y, eye.z, 1.0],
-            });
-        }
-        None
+        Some(super::camera::CameraUniforms {
+            view_proj: (proj * view).to_cols_array_2d(),
+            eye_position: [eye.x, eye.y, eye.z, 1.0],
+        })
     }
 }

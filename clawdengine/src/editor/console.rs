@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -28,12 +29,13 @@ pub struct LogEntry {
 }
 
 struct LogBufferInner {
-    entries: Vec<LogEntry>,
+    entries: VecDeque<LogEntry>,
     start_time: Instant,
     max_entries: usize,
     error_count: u32,
     warn_count: u32,
     info_count: u32,
+    debug_count: u32,
 }
 
 #[derive(Clone)]
@@ -45,12 +47,13 @@ impl LogBuffer {
     fn new(max_entries: usize) -> Self {
         Self {
             inner: Arc::new(Mutex::new(LogBufferInner {
-                entries: Vec::with_capacity(256),
+                entries: VecDeque::with_capacity(max_entries),
                 start_time: Instant::now(),
                 max_entries,
                 error_count: 0,
                 warn_count: 0,
                 info_count: 0,
+                debug_count: 0,
             })),
         }
     }
@@ -63,25 +66,27 @@ impl LogBuffer {
             LogLevel::Error => inner.error_count += 1,
             LogLevel::Warn => inner.warn_count += 1,
             LogLevel::Info => inner.info_count += 1,
-            LogLevel::Debug => {}
+            LogLevel::Debug => inner.debug_count += 1,
         }
 
         if inner.entries.len() >= inner.max_entries {
-            inner.entries.remove(0);
+            inner.entries.pop_front();
         }
-        inner.entries.push(LogEntry {
+        inner.entries.push_back(LogEntry {
             level,
             message,
             timestamp_secs,
         });
     }
 
-    pub fn snapshot(&self) -> Vec<LogEntry> {
-        self.inner
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .entries
-            .clone()
+    /// Borrow the entries slice under the buffer lock and run `f` on it.
+    /// Avoids cloning the full Vec every frame for the console panel.
+    pub fn with_entries<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&VecDeque<LogEntry>) -> R,
+    {
+        let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        f(&inner.entries)
     }
 
     pub fn clear(&self) {
@@ -90,11 +95,13 @@ impl LogBuffer {
         inner.error_count = 0;
         inner.warn_count = 0;
         inner.info_count = 0;
+        inner.debug_count = 0;
     }
 
-    pub fn counts(&self) -> (u32, u32, u32) {
+    /// (error, warn, info, debug) running counts.
+    pub fn counts(&self) -> (u32, u32, u32, u32) {
         let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        (inner.error_count, inner.warn_count, inner.info_count)
+        (inner.error_count, inner.warn_count, inner.info_count, inner.debug_count)
     }
 }
 

@@ -1,9 +1,13 @@
+// Raycasting is exposed to user scripts via ScriptContext; several fields and
+// helpers are part of the public API even though demo scripts don't exercise
+// them all yet.
+#![allow(dead_code)]
+
 use glam::Vec3;
 use crate::core::{ColliderShape, EntityId, World};
 
 /// Result of a raycast hit.
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct RayHit {
     pub entity: EntityId,
     pub point: Vec3,
@@ -121,7 +125,6 @@ pub fn raycast(
 }
 
 /// Cast a ray and return ALL hits sorted by distance.
-#[allow(dead_code)]
 pub fn raycast_all(
     world: &World,
     origin: Vec3,

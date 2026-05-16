@@ -1,35 +1,53 @@
 use egui::{Color32, CornerRadius, FontFamily, FontId, Margin, Stroke, TextStyle};
 
-// ---- Catppuccin Mocha Palette ----
+// ---- ClawdEngine "Rust" palette (ported from Claude Design mockup) ----
+// Tokens are the source of truth in design_extract/clawdengine/project/styles.css.
+// Constant NAMES are kept identical to the previous Catppuccin theme so the
+// whole editor re-skins automatically — only RGB values change.
 
-// Backgrounds (blue-tinted grays, darkest to lightest)
-pub const BG_CRUST:    Color32 = Color32::from_rgb(0x11, 0x11, 0x1B);
-pub const BG_MANTLE:   Color32 = Color32::from_rgb(0x18, 0x18, 0x25);
-pub const BG_BASE:     Color32 = Color32::from_rgb(0x1E, 0x1E, 0x2E);
-pub const BG_SURFACE0: Color32 = Color32::from_rgb(0x31, 0x32, 0x44);
-pub const BG_SURFACE1: Color32 = Color32::from_rgb(0x45, 0x47, 0x5A);
-#[allow(dead_code)]
-pub const BG_SURFACE2: Color32 = Color32::from_rgb(0x58, 0x5B, 0x70);
+// Backgrounds, darkest -> lightest (mockup --line, --bg-0..--bg-3)
+pub const BG_CRUST:    Color32 = Color32::from_rgb(0x0A, 0x0A, 0x0C); // --line: gutters, extreme insets
+pub const BG_MANTLE:   Color32 = Color32::from_rgb(0x13, 0x13, 0x16); // --bg-0: menubar, tab bar, status bar
+pub const BG_BASE:     Color32 = Color32::from_rgb(0x1A, 0x1A, 0x1E); // --bg-1: panel surface
+pub const BG_SURFACE0: Color32 = Color32::from_rgb(0x20, 0x20, 0x24); // --bg-2: inputs, section headers
+pub const BG_SURFACE1: Color32 = Color32::from_rgb(0x26, 0x26, 0x2B); // --bg-3: hover
 
-// Text
-pub const TEXT_PRIMARY:  Color32 = Color32::from_rgb(0xCD, 0xD6, 0xF4);
-pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(0xA6, 0xAD, 0xC8);
-pub const TEXT_DISABLED: Color32 = Color32::from_rgb(0x6C, 0x70, 0x86);
+// Text (mockup --text / --text-2 / --text-3)
+pub const TEXT_PRIMARY:   Color32 = Color32::from_rgb(0xE6, 0xE6, 0xE8);
+pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(0xA4, 0xA4, 0xAC);
+// Mockup --text-3 is #6E6E76 (~3:1 on BG_BASE — fails WCAG AA). The merged
+// contrast fix mandates >=4.5:1 for real labels, so disabled text is lifted to
+// #8A8A93 (~4.6:1 on #1A1A1E) — close to the design intent, still accessible.
+pub const TEXT_DISABLED:  Color32 = Color32::from_rgb(0x8A, 0x8A, 0x93);
 
-// Accent (sapphire blue)
-pub const ACCENT:         Color32 = Color32::from_rgb(0x89, 0xB4, 0xFA);
-pub const ACCENT_HOVER:   Color32 = Color32::from_rgb(0xB4, 0xBE, 0xFE);
-pub const ACCENT_PRESSED: Color32 = Color32::from_rgb(0x74, 0xC7, 0xEC);
+// Accent — Rust orange. Text placed ON accent must use ON_ACCENT, never white.
+pub const ACCENT:         Color32 = Color32::from_rgb(0xFF, 0x7A, 0x3D); // --accent
+pub const ACCENT_HOVER:   Color32 = Color32::from_rgb(0xFF, 0x9A, 0x66); // --accent-2
+pub const ACCENT_PRESSED: Color32 = Color32::from_rgb(0xE8, 0x6A, 0x2D);
+pub const ACCENT_SOFT:    Color32 = Color32::from_rgba_premultiplied(0x2C, 0x18, 0x0C, 0x24); // selection fill ~rgba(255,122,61,.14)
+pub const ACCENT_RING:    Color32 = Color32::from_rgba_premultiplied(0x52, 0x27, 0x14, 0x52); // focus ring ~rgba(255,122,61,.32)
+pub const ON_ACCENT:      Color32 = Color32::from_rgb(0x1A, 0x1A, 0x1E); // text/icon on an accent fill
 
-// Semantic
-pub const SUCCESS: Color32 = Color32::from_rgb(0xA6, 0xE3, 0xA1);
-pub const ERROR:   Color32 = Color32::from_rgb(0xF3, 0x8B, 0xA8);
-pub const WARNING: Color32 = Color32::from_rgb(0xF9, 0xE2, 0xAF);
+// Semantic (mockup --green / --red / --yellow)
+pub const SUCCESS: Color32 = Color32::from_rgb(0x5D, 0xD3, 0x9E);
+pub const ERROR:   Color32 = Color32::from_rgb(0xFF, 0x5D, 0x5D);
+pub const WARNING: Color32 = Color32::from_rgb(0xF5, 0xC3, 0x4B);
 
-// Axis colors (for gizmos & inspector)
-pub const AXIS_X: Color32 = Color32::from_rgb(0xDC, 0x50, 0x50);
-pub const AXIS_Y: Color32 = Color32::from_rgb(0x50, 0xBE, 0x50);
-pub const AXIS_Z: Color32 = Color32::from_rgb(0x50, 0x78, 0xDC);
+// Axis colors (mockup --x / --y / --z)
+pub const AXIS_X: Color32 = Color32::from_rgb(0xFF, 0x6B, 0x6B);
+pub const AXIS_Y: Color32 = Color32::from_rgb(0x7E, 0xD9, 0x57);
+pub const AXIS_Z: Color32 = Color32::from_rgb(0x5E, 0xB1, 0xFF);
+
+// Secondary accents (mockup --purple / cyan / --blue) for inspector & icons.
+pub const MAUVE: Color32 = Color32::from_rgb(0xB0, 0x8C, 0xFF); // --purple
+pub const TEAL:  Color32 = Color32::from_rgb(0x3D, 0xDB, 0xD9); // cyan
+pub const PEACH: Color32 = Color32::from_rgb(0xFF, 0xB2, 0x7A);
+pub const SKY:   Color32 = Color32::from_rgb(0x5E, 0xB1, 0xFF); // --blue
+
+// Component-section accents referenced by the inspector panel.
+pub const COMPONENT_MESH:      Color32 = TEAL;
+pub const COMPONENT_MATERIAL:  Color32 = Color32::from_rgb(0xB0, 0x8C, 0xFF); // material = purple
+pub const COMPONENT_RIGIDBODY: Color32 = PEACH;
 
 pub fn apply_theme(ctx: &egui::Context) {
     let mut style = (*ctx.style()).clone();
@@ -59,28 +77,28 @@ pub fn apply_theme(ctx: &egui::Context) {
     style.visuals.widgets.inactive.weak_bg_fill = BG_SURFACE0;
     style.visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, BG_SURFACE1);
     style.visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, TEXT_PRIMARY);
-    style.visuals.widgets.inactive.corner_radius = CornerRadius::same(6);
+    style.visuals.widgets.inactive.corner_radius = CornerRadius::same(4);
 
     // ---- Widgets — hovered ----
     style.visuals.widgets.hovered.bg_fill = BG_SURFACE1;
     style.visuals.widgets.hovered.weak_bg_fill = BG_SURFACE1;
     style.visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, ACCENT);
     style.visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, TEXT_PRIMARY);
-    style.visuals.widgets.hovered.corner_radius = CornerRadius::same(6);
+    style.visuals.widgets.hovered.corner_radius = CornerRadius::same(4);
 
     // ---- Widgets — active (being interacted with) ----
-    style.visuals.widgets.active.bg_fill = ACCENT_PRESSED;
-    style.visuals.widgets.active.weak_bg_fill = ACCENT_PRESSED;
+    style.visuals.widgets.active.bg_fill = ACCENT;
+    style.visuals.widgets.active.weak_bg_fill = ACCENT;
     style.visuals.widgets.active.bg_stroke = Stroke::new(1.0, ACCENT);
-    style.visuals.widgets.active.fg_stroke = Stroke::new(1.5, Color32::WHITE);
-    style.visuals.widgets.active.corner_radius = CornerRadius::same(6);
+    style.visuals.widgets.active.fg_stroke = Stroke::new(1.5, ON_ACCENT);
+    style.visuals.widgets.active.corner_radius = CornerRadius::same(4);
 
     // ---- Widgets — open (combo boxes, menus) ----
     style.visuals.widgets.open.bg_fill = BG_SURFACE0;
     style.visuals.widgets.open.weak_bg_fill = BG_SURFACE0;
     style.visuals.widgets.open.bg_stroke = Stroke::new(1.0, ACCENT);
     style.visuals.widgets.open.fg_stroke = Stroke::new(1.0, TEXT_PRIMARY);
-    style.visuals.widgets.open.corner_radius = CornerRadius::same(6);
+    style.visuals.widgets.open.corner_radius = CornerRadius::same(4);
 
     // ---- Shadows & windows ----
     style.visuals.window_shadow = egui::Shadow {
@@ -95,8 +113,8 @@ pub fn apply_theme(ctx: &egui::Context) {
         spread: 2,
         color: Color32::from_black_alpha(100),
     };
-    style.visuals.window_corner_radius = CornerRadius::same(8);
-    style.visuals.menu_corner_radius = CornerRadius::same(8);
+    style.visuals.window_corner_radius = CornerRadius::same(6);
+    style.visuals.menu_corner_radius = CornerRadius::same(6);
     style.visuals.window_stroke = Stroke::new(1.0, BG_SURFACE1);
 
     // ---- Visual polish ----
@@ -118,11 +136,12 @@ pub fn apply_theme(ctx: &egui::Context) {
     style.visuals.hyperlink_color = ACCENT;
 
     // ---- Text styles ----
-    style.text_styles.insert(TextStyle::Heading, FontId::new(15.0, FontFamily::Proportional));
-    style.text_styles.insert(TextStyle::Body, FontId::new(13.0, FontFamily::Proportional));
-    style.text_styles.insert(TextStyle::Monospace, FontId::new(13.0, FontFamily::Monospace));
-    style.text_styles.insert(TextStyle::Button, FontId::new(13.0, FontFamily::Proportional));
-    style.text_styles.insert(TextStyle::Small, FontId::new(11.0, FontFamily::Proportional));
+    // Mockup scale: base 12, small 11, mono ~11. Tighter than Catppuccin.
+    style.text_styles.insert(TextStyle::Heading, FontId::new(13.0, FontFamily::Proportional));
+    style.text_styles.insert(TextStyle::Body, FontId::new(12.0, FontFamily::Proportional));
+    style.text_styles.insert(TextStyle::Monospace, FontId::new(11.0, FontFamily::Monospace));
+    style.text_styles.insert(TextStyle::Button, FontId::new(12.0, FontFamily::Proportional));
+    style.text_styles.insert(TextStyle::Small, FontId::new(10.5, FontFamily::Proportional));
 
     // ---- Spacing ----
     style.spacing.item_spacing = egui::vec2(8.0, 6.0);

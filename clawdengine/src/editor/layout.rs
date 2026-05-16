@@ -63,6 +63,40 @@ pub fn axis_drag(ui: &mut egui::Ui, label: &str, color: Color32, value: &mut f32
     ui.add(DragValue::new(value).speed(speed).max_decimals(3)).changed()
 }
 
+/// Replace any non-finite component (NaN / ±Inf) with `fallback`. Used to
+/// keep transforms sane after a paste or runaway drag would otherwise poison
+/// the model matrix.
+pub fn sanitize_vec3(v: &mut glam::Vec3, fallback: f32) {
+    if !v.x.is_finite() { v.x = fallback; }
+    if !v.y.is_finite() { v.y = fallback; }
+    if !v.z.is_finite() { v.z = fallback; }
+}
+
+/// Triple colored XYZ drag values laid out horizontally. Returns true if any
+/// component changed. Wraps `axis_drag` to remove boilerplate at every Vec3
+/// edit site (position, rotation-as-euler, scale, velocity, ...).
+pub fn vec3_drag(ui: &mut egui::Ui, value: &mut glam::Vec3, speed: f32) -> bool {
+    ui.horizontal(|ui| {
+        let cx = axis_drag(ui, "X", theme::AXIS_X, &mut value.x, speed);
+        let cy = axis_drag(ui, "Y", theme::AXIS_Y, &mut value.y, speed);
+        let cz = axis_drag(ui, "Z", theme::AXIS_Z, &mut value.z, speed);
+        cx || cy || cz
+    })
+    .inner
+}
+
+/// Like `vec3_drag` but operates on a [f32; 3] (useful when callers cannot
+/// give up an &mut glam::Vec3, e.g. euler angle scratch buffers).
+pub fn vec3_drag_array(ui: &mut egui::Ui, value: &mut [f32; 3], speed: f32) -> bool {
+    ui.horizontal(|ui| {
+        let cx = axis_drag(ui, "X", theme::AXIS_X, &mut value[0], speed);
+        let cy = axis_drag(ui, "Y", theme::AXIS_Y, &mut value[1], speed);
+        let cz = axis_drag(ui, "Z", theme::AXIS_Z, &mut value[2], speed);
+        cx || cy || cz
+    })
+    .inner
+}
+
 /// Component section card — framed card with icon header + optional remove button.
 /// Returns `true` if the remove button was clicked.
 pub fn component_section(
@@ -212,22 +246,127 @@ pub fn component_section(
     remove
 }
 
-/// Property row with fixed-width label for alignment
+/// Property row with fixed-width label for alignment.
+/// Label column is 116px wide (spec: grid 116px 1fr, gap 6px).
 pub fn property_row(ui: &mut egui::Ui, label: &str, add_contents: impl FnOnce(&mut egui::Ui)) {
     ui.horizontal(|ui| {
         ui.allocate_ui_with_layout(
-            egui::vec2(72.0, ui.spacing().interact_size.y),
+            egui::vec2(116.0, ui.spacing().interact_size.y),
             egui::Layout::left_to_right(egui::Align::Center),
             |ui| {
                 ui.label(
                     egui::RichText::new(label)
                         .color(theme::TEXT_SECONDARY)
-                        .size(12.0),
+                        .size(11.0),
                 );
             },
         );
         add_contents(ui);
     });
+}
+
+/// Custom slider matching the design mockup: 4px track (BG_SURFACE1 bg, ACCENT
+/// fill), 10px knob (TEXT_PRIMARY fill + 2px ACCENT border).
+/// Returns `true` if the value changed.
+pub fn theme_slider(ui: &mut egui::Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>) -> bool {
+    let (min, max) = (*range.start(), *range.end());
+    let span = (max - min).max(f32::EPSILON);
+    let t = ((*value - min) / span).clamp(0.0, 1.0);
+
+    // Allocate the full available width, 16px tall (knob needs ~10px vertical)
+    let desired = egui::vec2(ui.available_width(), 16.0);
+    let (rect, resp) = ui.allocate_exact_size(desired, egui::Sense::click_and_drag());
+
+    // Track geometry: 4px tall, vertically centred
+    let track_y = rect.center().y;
+    let track_rect = egui::Rect::from_min_max(
+        egui::pos2(rect.left(), track_y - 2.0),
+        egui::pos2(rect.right() - 40.0, track_y + 2.0),
+    );
+    let knob_x = track_rect.left() + t * track_rect.width();
+
+    // Interaction: update value on drag/click within the track area
+    let mut changed = false;
+    if resp.dragged() || resp.clicked() {
+        if let Some(pos) = resp.interact_pointer_pos() {
+            let new_t = ((pos.x - track_rect.left()) / track_rect.width()).clamp(0.0, 1.0);
+            let new_val = min + new_t * span;
+            if (*value - new_val).abs() > f32::EPSILON {
+                *value = new_val;
+                changed = true;
+            }
+        }
+    }
+
+    let painter = ui.painter();
+
+    // Track background
+    painter.rect_filled(track_rect, egui::CornerRadius::same(2), theme::BG_SURFACE1);
+    // Track fill (accent)
+    let fill_rect = egui::Rect::from_min_max(
+        track_rect.min,
+        egui::pos2(knob_x.min(track_rect.right()), track_rect.max.y),
+    );
+    painter.rect_filled(fill_rect, egui::CornerRadius::same(2), theme::ACCENT);
+
+    // Knob: 10px circle, TEXT_PRIMARY fill, 2px ACCENT stroke
+    painter.circle(
+        egui::pos2(knob_x, track_y),
+        5.0,
+        theme::TEXT_PRIMARY,
+        egui::Stroke::new(2.0, theme::ACCENT),
+    );
+
+    // Value label on the right (monospace, 11px)
+    let label_rect = egui::Rect::from_min_max(
+        egui::pos2(track_rect.right() + 4.0, rect.top()),
+        egui::pos2(rect.right(), rect.bottom()),
+    );
+    painter.text(
+        label_rect.center(),
+        egui::Align2::CENTER_CENTER,
+        format!("{:.2}", *value),
+        egui::FontId::monospace(10.5),
+        theme::TEXT_SECONDARY,
+    );
+
+    changed
+}
+
+/// Color swatch: small framed rect showing the color + egui color picker popup.
+/// Returns `true` if the color changed.
+pub fn color_swatch(ui: &mut egui::Ui, rgb: &mut [f32; 3]) -> bool {
+    let swatch_size = egui::vec2(28.0, 16.0);
+    let color = egui::Color32::from_rgb(
+        (rgb[0] * 255.0) as u8,
+        (rgb[1] * 255.0) as u8,
+        (rgb[2] * 255.0) as u8,
+    );
+
+    // Outer frame: BG_SURFACE0 bg + hairline border
+    let frame_resp = egui::Frame::NONE
+        .fill(theme::BG_SURFACE0)
+        .stroke(egui::Stroke::new(1.0, theme::BG_SURFACE1))
+        .corner_radius(egui::CornerRadius::same(3))
+        .inner_margin(egui::Margin::same(1))
+        .show(ui, |ui| {
+            let (rect, resp) = ui.allocate_exact_size(swatch_size, egui::Sense::click());
+            ui.painter().rect_filled(rect, egui::CornerRadius::same(2), color);
+            resp
+        });
+
+    let mut changed = false;
+    // Show egui's built-in color picker as a popup on click
+    egui::Popup::from_toggle_button_response(&frame_resp.inner)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .show(|popup_ui: &mut egui::Ui| {
+            popup_ui.set_min_width(220.0);
+            if popup_ui.color_edit_button_rgb(rgb).changed() {
+                changed = true;
+            }
+        });
+
+    changed
 }
 
 /// Texture slot card: placeholder square + filename + remove/browse
@@ -281,12 +420,6 @@ pub fn texture_slot(
                     ui.label(egui::RichText::new("None").color(theme::TEXT_DISABLED).size(11.0));
                 }
             });
-            let browse = ui.small_button("Browse...");
-            if browse.clicked() {
-                action = TextureSlotAction::BrowseClicked;
-            }
-            // Return browse response for popup attachment
-            ui.data_mut(|d| d.insert_temp(egui::Id::new(format!("browse_resp_{}", label)), browse));
         });
     });
 
@@ -297,7 +430,6 @@ pub fn texture_slot(
 pub enum TextureSlotAction {
     None,
     Remove,
-    BrowseClicked,
 }
 
 fn deduplicate_scene_name(base: &str) -> String {
@@ -332,21 +464,32 @@ pub fn resolve_anchor(anchor: crate::core::UiAnchor, rect: egui::Rect) -> egui::
 }
 
 pub fn entity_icon(world: &World, id: EntityId) -> (&'static str, Color32) {
+    use crate::editor::theme;
     if world.get_canvas(id).is_some() {
-        ("\u{1F5BC}", Color32::from_rgb(0xCB, 0xA6, 0xF7)) // mauve canvas frame
+        ("\u{1F5BC}", theme::MAUVE) // canvas frame
     } else if world.get_camera(id).is_some() {
-        ("\u{1F3A5}", Color32::from_rgb(0x87, 0xDB, 0xEB)) // sky blue camera
+        ("\u{1F3A5}", theme::SKY) // camera
     } else if world.get_light(id).is_some() {
-        ("\u{2600}", Color32::from_rgb(0xF0, 0xC0, 0x40)) // yellow sun
+        ("\u{2600}", Color32::from_rgb(0xF0, 0xC0, 0x40)) // sun (warmer yellow than WARNING)
     } else if world.get_ui_element(id).is_some() {
-        ("\u{1F5B5}", Color32::from_rgb(0xCB, 0xA6, 0xF7)) // mauve UI icon
+        ("\u{1F5B5}", theme::MAUVE) // UI icon
     } else if world.get_audio_source(id).is_some() {
-        ("\u{1F50A}", Color32::from_rgb(0xF9, 0xE2, 0xAF)) // yellow speaker
+        ("\u{1F50A}", theme::WARNING) // speaker
     } else if world.get_mesh_renderer(id).is_some() {
-        ("\u{25A0}", Color32::from_rgb(0x4B, 0x8B, 0xBE)) // blue square
+        ("\u{25A0}", Color32::from_rgb(0x4B, 0x8B, 0xBE)) // blue square (kept — distinct from accents)
     } else {
-        ("\u{25CB}", Color32::from_rgb(0x80, 0x80, 0x80)) // gray circle
+        ("\u{25CB}", Color32::from_rgb(0x80, 0x80, 0x80)) // gray circle (neutral)
     }
+}
+
+/// Small mid-dot separator used between status bar items.
+fn status_dot_sep(ui: &mut egui::Ui) {
+    ui.label(
+        egui::RichText::new("\u{00B7}")
+            .color(theme::TEXT_DISABLED.gamma_multiply(0.6))
+            .monospace()
+            .size(10.5),
+    );
 }
 
 // ---- Main Layout Entry Point ----
@@ -364,6 +507,10 @@ impl EditorLayout {
     ) {
         // Header stays OUTSIDE the dock area (TopBottomPanel)
         header::show_header(ctx, editor_ctx);
+
+        // Status bar — must be registered BEFORE the DockArea (same as the
+        // header) so the dock fills the remaining central space.
+        Self::show_status_bar(ctx, editor_ctx);
 
         // Extract dock_state to separate borrows (same pattern as scripts)
         let mut dock_state = std::mem::replace(
@@ -392,6 +539,155 @@ impl EditorLayout {
 
         // Asset modal (rendered at egui::Context level, not inside dock)
         Self::show_asset_modal(ctx, editor_ctx);
+        Self::show_confirm_delete_asset_modal(ctx, editor_ctx);
+    }
+
+    /// Bottom status bar (mockup's 24px footer). Registered before the dock so
+    /// it reserves space at the bottom of the window.
+    fn show_status_bar(ctx: &egui::Context, editor_ctx: &EditorContext) {
+        egui::TopBottomPanel::bottom("statusbar")
+            .exact_height(24.0)
+            .resizable(false)
+            .frame(
+                Frame::NONE
+                    .fill(theme::BG_MANTLE)
+                    .inner_margin(Margin::symmetric(10, 0))
+                    .stroke(Stroke::new(1.0, theme::BG_SURFACE0)),
+            )
+            .show(ctx, |ui| {
+                ui.horizontal_centered(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+
+                    // Live indicator dot
+                    let (dot_rect, _) =
+                        ui.allocate_exact_size(egui::vec2(7.0, 7.0), egui::Sense::hover());
+                    ui.painter()
+                        .circle_filled(dot_rect.center(), 3.0, theme::SUCCESS);
+
+                    let state_label = if editor_ctx.play_mode {
+                        "Editor \u{2022} Play mode"
+                    } else {
+                        "Editor \u{2022} idle"
+                    };
+                    ui.label(
+                        egui::RichText::new(state_label)
+                            .color(theme::TEXT_DISABLED)
+                            .monospace()
+                            .size(10.5),
+                    );
+
+                    status_dot_sep(ui);
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Entities {}",
+                            editor_ctx.entity_count
+                        ))
+                        .color(theme::TEXT_DISABLED)
+                        .monospace()
+                        .size(10.5),
+                    );
+
+                    status_dot_sep(ui);
+                    // Frame time printed with a fixed-width pattern (2 digits
+                    // + 1 decimal) so the label width is constant frame to
+                    // frame — avoids the surrounding layout shifting as the
+                    // value bounces (e.g. 6.9 -> 12.4 -> 9.1 ms).
+                    let frame_ms = if editor_ctx.fps > 0.0 {
+                        1000.0 / editor_ctx.fps
+                    } else {
+                        0.0
+                    };
+                    ui.label(
+                        egui::RichText::new(format!("Frame {:>5.1} ms", frame_ms))
+                            .color(theme::TEXT_DISABLED)
+                            .monospace()
+                            .size(10.5),
+                    );
+
+                    // Right side: build badge + git status
+                    ui.with_layout(
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            ui.label(
+                                egui::RichText::new("main \u{2022} clean")
+                                    .color(theme::TEXT_DISABLED)
+                                    .monospace()
+                                    .size(10.5),
+                            );
+                            ui.add_space(8.0);
+                            Frame::NONE
+                                .fill(theme::ACCENT_SOFT)
+                                .stroke(Stroke::new(1.0, theme::ACCENT))
+                                .corner_radius(CornerRadius::same(3))
+                                .inner_margin(Margin::symmetric(6, 1))
+                                .show(ui, |ui| {
+                                    ui.label(
+                                        egui::RichText::new("built with Rust \u{2022} wgpu")
+                                            .color(theme::ACCENT)
+                                            .monospace()
+                                            .size(10.0),
+                                    );
+                                });
+                        },
+                    );
+                });
+            });
+    }
+
+    /// Confirmation gate for asset deletion. Unlike entity deletion (captured
+    /// by the undo stack), removing a file/folder is irreversible.
+    fn show_confirm_delete_asset_modal(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
+        let Some(path) = editor_ctx.confirm_delete_asset.clone() else {
+            return;
+        };
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("this item")
+            .to_string();
+
+        let mut confirmed = false;
+        let mut cancelled = false;
+
+        egui::Window::new("Delete asset")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.label(
+                    egui::RichText::new(format!("Delete \u{201C}{name}\u{201D}?"))
+                        .strong(),
+                );
+                ui.label(
+                    egui::RichText::new("This permanently removes it from disk and cannot be undone.")
+                        .color(theme::TEXT_DISABLED)
+                        .small(),
+                );
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(egui::RichText::new("Delete").color(theme::ERROR))
+                        .clicked()
+                    {
+                        confirmed = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        cancelled = true;
+                    }
+                });
+                // Esc cancels, Enter does NOT confirm (destructive — require
+                // an explicit click on Delete).
+                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    cancelled = true;
+                }
+            });
+
+        if confirmed {
+            editor_ctx.pending_delete_asset = Some(path);
+            editor_ctx.confirm_delete_asset = None;
+        } else if cancelled {
+            editor_ctx.confirm_delete_asset = None;
+        }
     }
 
     fn show_asset_modal(ctx: &egui::Context, editor_ctx: &mut EditorContext) {

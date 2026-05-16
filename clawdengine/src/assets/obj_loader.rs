@@ -4,14 +4,15 @@ use anyhow::{Context, Result};
 
 use crate::renderer::mesh::{Vertex, compute_tangents};
 
-#[allow(dead_code)]
 pub struct LoadedMesh {
+    /// OBJ object name. Exposed as part of the load result even when callers
+    /// don't currently use it (they may surface it in the asset browser).
+    #[allow(dead_code)]
     pub name: String,
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
 }
 
-#[allow(dead_code)]
 pub fn load_obj(path: impl AsRef<Path>) -> Result<Vec<LoadedMesh>> {
     let path = path.as_ref();
     let (models, _materials) = tobj::load_obj(path, &tobj::GPU_LOAD_OPTIONS)

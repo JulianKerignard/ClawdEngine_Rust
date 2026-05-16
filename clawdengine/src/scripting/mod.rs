@@ -1,11 +1,13 @@
-#![allow(dead_code, unused_imports)]
+// The scripting module exposes a stable API surface intended for user game
+// scripts. Many helpers (raycasting, tag queries, cross-entity accessors)
+// are not exercised by demo scripts but must remain available.
+#![allow(dead_code)]
+
 pub mod demo_scripts;
 pub mod fps_controller;
-pub mod math_utils;
 
 pub use demo_scripts::*;
 pub use fps_controller::FPSController;
-pub use math_utils::{GameRng, lerp, lerp_vec3, distance, distance_squared, look_at_rotation, move_toward};
 
 use crate::core::{EntityId, World, Transform, RigidBody, Material, AudioSource};
 use crate::input::Input;

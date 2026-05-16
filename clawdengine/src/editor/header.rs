@@ -3,43 +3,56 @@ use egui::{Color32, CornerRadius, Frame, Margin, Stroke};
 use super::context::{AssetModal, EditorContext, EditorTool};
 use super::theme;
 
+const ENGINE_VERSION: &str = "0.4.x";
+
 pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
-    egui::TopBottomPanel::top("header")
-        .exact_height(38.0)
+    show_menubar(ctx, editor_ctx);
+    show_toolbar(ctx, editor_ctx);
+}
+
+/// Top row: brand + File/View menus + scene meta. Mirrors the mockup's 32px
+/// menubar.
+fn show_menubar(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
+    egui::TopBottomPanel::top("menubar")
+        .exact_height(30.0)
         .resizable(false)
         .frame(
             Frame::NONE
                 .fill(theme::BG_MANTLE)
-                .inner_margin(Margin::symmetric(12, 0))
+                .inner_margin(Margin::symmetric(10, 0))
                 .stroke(Stroke::new(1.0, theme::BG_SURFACE0)),
         )
         .show(ctx, |ui| {
             ui.horizontal_centered(|ui| {
-                // Logo with accent color
+                // Square accent logo with "C"
+                let (logo_rect, _) =
+                    ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
+                ui.painter()
+                    .rect_filled(logo_rect, CornerRadius::same(4), theme::ACCENT);
+                ui.painter().text(
+                    logo_rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "C",
+                    egui::FontId::proportional(12.0),
+                    theme::ON_ACCENT,
+                );
+
+                ui.add_space(6.0);
                 ui.label(
                     egui::RichText::new("ClawdEngine")
-                        .color(theme::ACCENT)
+                        .color(theme::TEXT_PRIMARY)
                         .strong()
-                        .size(15.0),
+                        .size(13.0),
+                );
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(ENGINE_VERSION)
+                        .color(theme::TEXT_DISABLED)
+                        .size(11.0),
                 );
 
-                // Scene name
-                if !editor_ctx.scene_name.is_empty() {
-                    ui.label(
-                        egui::RichText::new(format!("  \u{2022}  {}", editor_ctx.scene_name))
-                            .color(theme::TEXT_DISABLED)
-                            .size(12.0),
-                    );
-                }
-
-                ui.add_space(12.0);
-
-                // Vertical separator
-                let (sep_rect, _) = ui.allocate_exact_size(
-                    egui::vec2(1.0, 20.0), egui::Sense::hover(),
-                );
-                ui.painter().rect_filled(sep_rect, 0.0, theme::BG_SURFACE0);
-
+                ui.add_space(10.0);
+                vertical_separator(ui);
                 ui.add_space(8.0);
 
                 // File menu
@@ -47,7 +60,8 @@ pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                     egui::RichText::new("File").color(theme::TEXT_SECONDARY),
                     |ui| {
                         if ui.button("New Scene").clicked() {
-                            editor_ctx.asset_modal = Some(AssetModal::NewScene { name: "New Scene".to_string() });
+                            editor_ctx.asset_modal =
+                                Some(AssetModal::NewScene { name: "New Scene".to_string() });
                             ui.close();
                         }
                         ui.separator();
@@ -57,7 +71,8 @@ pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                         }
                         ui.separator();
                         if let Ok(entries) = std::fs::read_dir("assets/scenes") {
-                            let mut scenes: Vec<String> = entries.flatten()
+                            let mut scenes: Vec<String> = entries
+                                .flatten()
                                 .filter_map(|e| {
                                     let p = e.path();
                                     if p.extension().is_some_and(|ext| ext == "ron") {
@@ -69,9 +84,16 @@ pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                                 .collect();
                             scenes.sort();
                             if scenes.is_empty() {
-                                ui.label(egui::RichText::new("No saved scenes").color(theme::TEXT_DISABLED));
+                                ui.label(
+                                    egui::RichText::new("No saved scenes")
+                                        .color(theme::TEXT_DISABLED),
+                                );
                             } else {
-                                ui.label(egui::RichText::new("Load scene:").color(theme::TEXT_DISABLED).small());
+                                ui.label(
+                                    egui::RichText::new("Load scene:")
+                                        .color(theme::TEXT_DISABLED)
+                                        .small(),
+                                );
                                 for scene in scenes {
                                     if ui.button(&scene).clicked() {
                                         editor_ctx.pending_load_scene = Some(scene);
@@ -89,12 +111,20 @@ pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                 ui.menu_button(
                     egui::RichText::new("View").color(theme::TEXT_SECONDARY),
                     |ui| {
-                        let grid_label = if editor_ctx.show_grid { "\u{2611} Grid" } else { "\u{2610} Grid" };
+                        let grid_label = if editor_ctx.show_grid {
+                            "\u{2611} Grid"
+                        } else {
+                            "\u{2610} Grid"
+                        };
                         if ui.button(grid_label).clicked() {
                             editor_ctx.show_grid = !editor_ctx.show_grid;
                             ui.close();
                         }
-                        let stats_label = if editor_ctx.show_stats_overlay { "\u{2611} Stats Overlay" } else { "\u{2610} Stats Overlay" };
+                        let stats_label = if editor_ctx.show_stats_overlay {
+                            "\u{2611} Stats Overlay"
+                        } else {
+                            "\u{2610} Stats Overlay"
+                        };
                         if ui.button(stats_label).clicked() {
                             editor_ctx.show_stats_overlay = !editor_ctx.show_stats_overlay;
                             ui.close();
@@ -102,16 +132,44 @@ pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                     },
                 );
 
-                ui.add_space(8.0);
-
-                // Vertical separator
-                let (sep_rect, _) = ui.allocate_exact_size(
-                    egui::vec2(1.0, 20.0), egui::Sense::hover(),
+                // Right side: scene meta in mono
+                ui.with_layout(
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        if !editor_ctx.scene_name.is_empty() {
+                            // Use a distinct prefix instead of the literal
+                            // word "scene" so that a scene literally named
+                            // "scene" doesn't read "scene • scene".
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "Scene: {}",
+                                    editor_ctx.scene_name
+                                ))
+                                .color(theme::TEXT_DISABLED)
+                                .monospace()
+                                .size(11.0),
+                            );
+                        }
+                    },
                 );
-                ui.painter().rect_filled(sep_rect, 0.0, theme::BG_SURFACE0);
+            });
+        });
+}
 
-                ui.add_space(8.0);
-
+/// Second row: tool group, undo/redo, transport (Play/Pause/Step), search,
+/// layout pill, live stats. Mirrors the mockup's 40px toolbar.
+fn show_toolbar(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
+    egui::TopBottomPanel::top("toolbar")
+        .exact_height(38.0)
+        .resizable(false)
+        .frame(
+            Frame::NONE
+                .fill(theme::BG_MANTLE)
+                .inner_margin(Margin::symmetric(10, 0))
+                .stroke(Stroke::new(1.0, theme::BG_SURFACE0)),
+        )
+        .show(ctx, |ui| {
+            ui.horizontal_centered(|ui| {
                 // Tool group in a dark frame
                 Frame::NONE
                     .fill(theme::BG_CRUST)
@@ -122,26 +180,22 @@ pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                             ui.spacing_mut().item_spacing.x = 2.0;
                             let tools = [
                                 (EditorTool::Select, "\u{25C7}", "Select (Q)"),
-                                (EditorTool::Move,   "\u{271A}", "Move (W)"),
+                                (EditorTool::Move, "\u{271A}", "Move (W)"),
                                 (EditorTool::Rotate, "\u{21BB}", "Rotate (E)"),
-                                (EditorTool::Scale,  "\u{2922}", "Scale (R)"),
+                                (EditorTool::Scale, "\u{2922}", "Scale (R)"),
                             ];
                             for (tool, icon, tooltip) in &tools {
                                 let active = editor_ctx.active_tool == *tool;
-                                let text = if active {
-                                    egui::RichText::new(*icon).color(Color32::WHITE).size(15.0)
+                                let (fill, fg) = if active {
+                                    (theme::ACCENT, theme::ON_ACCENT)
                                 } else {
-                                    egui::RichText::new(*icon).color(theme::TEXT_DISABLED).size(15.0)
+                                    (Color32::TRANSPARENT, theme::TEXT_DISABLED)
                                 };
-                                let btn = if active {
-                                    egui::Button::new(text)
-                                        .fill(theme::ACCENT)
-                                        .corner_radius(CornerRadius::same(4))
-                                } else {
-                                    egui::Button::new(text)
-                                        .fill(Color32::TRANSPARENT)
-                                        .corner_radius(CornerRadius::same(4))
-                                };
+                                let btn = egui::Button::new(
+                                    egui::RichText::new(*icon).color(fg).size(15.0),
+                                )
+                                .fill(fill)
+                                .corner_radius(CornerRadius::same(4));
                                 if ui.add(btn).on_hover_text(*tooltip).clicked() {
                                     editor_ctx.active_tool = *tool;
                                 }
@@ -155,64 +209,123 @@ pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                 {
                     let can_undo = editor_ctx.undo_stack.can_undo();
                     let can_redo = editor_ctx.undo_stack.can_redo();
-                    let undo_color = if can_undo { theme::TEXT_SECONDARY } else { theme::TEXT_DISABLED.gamma_multiply(0.5) };
-                    let redo_color = if can_redo { theme::TEXT_SECONDARY } else { theme::TEXT_DISABLED.gamma_multiply(0.5) };
+                    let undo_color = if can_undo {
+                        theme::TEXT_SECONDARY
+                    } else {
+                        theme::TEXT_DISABLED.gamma_multiply(0.5)
+                    };
+                    let redo_color = if can_redo {
+                        theme::TEXT_SECONDARY
+                    } else {
+                        theme::TEXT_DISABLED.gamma_multiply(0.5)
+                    };
 
                     let undo_btn = ui.add(
-                        egui::Button::new(egui::RichText::new("\u{21B6}").color(undo_color).size(15.0))
-                            .fill(Color32::TRANSPARENT)
-                            .corner_radius(CornerRadius::same(4)),
+                        egui::Button::new(
+                            egui::RichText::new("\u{21B6}").color(undo_color).size(15.0),
+                        )
+                        .fill(Color32::TRANSPARENT)
+                        .corner_radius(CornerRadius::same(4)),
                     );
                     if undo_btn.on_hover_text("Undo (Cmd+Z)").clicked() && can_undo {
                         editor_ctx.pending_undo = true;
                     }
                     let redo_btn = ui.add(
-                        egui::Button::new(egui::RichText::new("\u{21B7}").color(redo_color).size(15.0))
-                            .fill(Color32::TRANSPARENT)
-                            .corner_radius(CornerRadius::same(4)),
+                        egui::Button::new(
+                            egui::RichText::new("\u{21B7}").color(redo_color).size(15.0),
+                        )
+                        .fill(Color32::TRANSPARENT)
+                        .corner_radius(CornerRadius::same(4)),
                     );
                     if redo_btn.on_hover_text("Redo (Cmd+Shift+Z)").clicked() && can_redo {
                         editor_ctx.pending_redo = true;
                     }
                 }
 
-                // Center: Play/Stop button
+                // Center: transport group (Play/Stop + inert Pause/Step)
                 let remaining = ui.available_width();
-                ui.add_space((remaining * 0.5 - 60.0).max(0.0));
+                ui.add_space((remaining * 0.5 - 70.0).max(0.0));
 
-                if editor_ctx.play_mode {
-                    let btn = egui::Button::new(
-                        egui::RichText::new("\u{23F9}  Stop")
-                            .color(Color32::WHITE)
-                            .size(14.0),
-                    )
-                    .fill(theme::ERROR)
-                    .corner_radius(CornerRadius::same(6));
-                    if ui.add(btn).on_hover_text("Stop (Space)").clicked() {
-                        editor_ctx.pending_play_toggle = Some(false);
-                    }
-                    ui.add_space(4.0);
-                    ui.label(
-                        egui::RichText::new(" PLAYING ")
-                            .background_color(theme::ERROR.gamma_multiply(0.25))
-                            .color(theme::ERROR)
-                            .small()
-                            .strong(),
-                    );
-                } else {
-                    let btn = egui::Button::new(
-                        egui::RichText::new("\u{25B6}  Play")
-                            .color(theme::BG_CRUST)
-                            .size(14.0),
-                    )
-                    .fill(theme::SUCCESS)
-                    .corner_radius(CornerRadius::same(6));
-                    if ui.add(btn).on_hover_text("Play (Space)").clicked() {
-                        editor_ctx.pending_play_toggle = Some(true);
-                    }
-                }
+                Frame::NONE
+                    .fill(theme::BG_CRUST)
+                    .corner_radius(CornerRadius::same(6))
+                    .inner_margin(Margin::symmetric(4, 2))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            if editor_ctx.play_mode {
+                                let btn = egui::Button::new(
+                                    egui::RichText::new("\u{23F9}  Stop")
+                                        .color(Color32::WHITE)
+                                        .size(13.0),
+                                )
+                                .fill(theme::ERROR)
+                                .corner_radius(CornerRadius::same(5));
+                                if ui.add(btn).on_hover_text("Stop (Space)").clicked() {
+                                    editor_ctx.pending_play_toggle = Some(false);
+                                }
+                                ui.label(
+                                    egui::RichText::new(" PLAYING ")
+                                        .background_color(theme::ERROR.gamma_multiply(0.25))
+                                        .color(theme::ERROR)
+                                        .small()
+                                        .strong(),
+                                );
+                            } else {
+                                // Manually drawn so hover swaps ACCENT ->
+                                // ACCENT_HOVER without painting over the glyph.
+                                let (rect, resp) = ui.allocate_exact_size(
+                                    egui::vec2(28.0, 22.0),
+                                    egui::Sense::click(),
+                                );
+                                let play_fill = if resp.hovered() {
+                                    theme::ACCENT_HOVER
+                                } else {
+                                    theme::ACCENT
+                                };
+                                ui.painter().rect_filled(
+                                    rect,
+                                    CornerRadius::same(5),
+                                    play_fill,
+                                );
+                                ui.painter().text(
+                                    rect.center(),
+                                    egui::Align2::CENTER_CENTER,
+                                    "\u{25B6}",
+                                    egui::FontId::proportional(13.0),
+                                    theme::ON_ACCENT,
+                                );
+                                if resp.on_hover_text("Play (Space)").clicked() {
+                                    editor_ctx.pending_play_toggle = Some(true);
+                                }
+                            }
+                            // Pause / Step are visible but inert for now.
+                            ui.add_enabled(
+                                false,
+                                egui::Button::new(
+                                    egui::RichText::new("\u{23F8}")
+                                        .color(theme::TEXT_DISABLED)
+                                        .size(13.0),
+                                )
+                                .fill(Color32::TRANSPARENT)
+                                .corner_radius(CornerRadius::same(5)),
+                            )
+                            .on_disabled_hover_text("Pause (coming soon)");
+                            ui.add_enabled(
+                                false,
+                                egui::Button::new(
+                                    egui::RichText::new("\u{23ED}")
+                                        .color(theme::TEXT_DISABLED)
+                                        .size(13.0),
+                                )
+                                .fill(Color32::TRANSPARENT)
+                                .corner_radius(CornerRadius::same(5)),
+                            )
+                            .on_disabled_hover_text("Step (coming soon)");
+                        });
+                    });
 
-                // Right side: feedback + FPS
+                // Right side: search, layout pill, feedback + stats
                 ui.with_layout(
                     egui::Layout::right_to_left(egui::Align::Center),
                     |ui| {
@@ -233,36 +346,102 @@ pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                             ui.add_space(8.0);
                         }
 
-                        let (err_count, warn_count, _) = editor_ctx.log_buffer.counts();
-                        if err_count > 0 {
-                            ui.label(
-                                egui::RichText::new(format!("{} err", err_count))
-                                    .color(theme::ERROR)
-                                    .size(11.0)
-                                    .monospace(),
-                            );
-                            ui.add_space(4.0);
-                        }
+                        let (err_count, warn_count, _, _) = editor_ctx.log_buffer.counts();
+                        // Fixed-width FPS / entity count so the right-to-left
+                        // layout doesn't shuffle as values change frame to
+                        // frame (was causing perceived flicker of the search
+                        // field and Play button on its left).
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{:>4.0} FPS | {:>3} entities",
+                                editor_ctx.fps, editor_ctx.entity_count
+                            ))
+                            .color(theme::TEXT_DISABLED)
+                            .monospace(),
+                        );
                         if warn_count > 0 {
+                            ui.add_space(4.0);
                             ui.label(
                                 egui::RichText::new(format!("{} warn", warn_count))
                                     .color(theme::WARNING)
                                     .size(11.0)
                                     .monospace(),
                             );
+                        }
+                        if err_count > 0 {
                             ui.add_space(4.0);
+                            ui.label(
+                                egui::RichText::new(format!("{} err", err_count))
+                                    .color(theme::ERROR)
+                                    .size(11.0)
+                                    .monospace(),
+                            );
                         }
 
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "{:.0} FPS | {} entities",
-                                editor_ctx.fps, editor_ctx.entity_count
-                            ))
-                            .color(theme::TEXT_DISABLED)
-                            .monospace(),
+                        ui.add_space(8.0);
+
+                        // Decorative "Layout · Default" pill
+                        Frame::NONE
+                            .fill(theme::BG_CRUST)
+                            .stroke(Stroke::new(1.0, theme::BG_SURFACE0))
+                            .corner_radius(CornerRadius::same(5))
+                            .inner_margin(Margin::symmetric(8, 3))
+                            .show(ui, |ui| {
+                                ui.label(
+                                    egui::RichText::new("Layout \u{2022} Default \u{25BE}")
+                                        .color(theme::TEXT_SECONDARY)
+                                        .size(11.0),
+                                );
+                            });
+
+                        ui.add_space(8.0);
+
+                        // Decorative search field with ⌘K hint.
+                        //
+                        // The frame is allocated with a FIXED size and a
+                        // CONSTANT 1px stroke whose color toggles on hover —
+                        // we used to change the stroke thickness 1->2px, but
+                        // the wider border shifted the hit rect by a pixel,
+                        // pushing the cursor out of the hovered area on the
+                        // next frame and causing visible 1-frame flicker.
+                        let search_size = egui::vec2(150.0, 22.0);
+                        let (search_rect, search_resp) =
+                            ui.allocate_exact_size(search_size, egui::Sense::hover());
+                        let stroke_color = if search_resp.hovered() {
+                            theme::ACCENT
+                        } else {
+                            theme::BG_SURFACE0
+                        };
+                        ui.painter().rect(
+                            search_rect,
+                            CornerRadius::same(5),
+                            theme::BG_CRUST,
+                            Stroke::new(1.0, stroke_color),
+                            egui::StrokeKind::Inside,
+                        );
+                        let cy = search_rect.center().y;
+                        ui.painter().text(
+                            egui::pos2(search_rect.left() + 10.0, cy),
+                            egui::Align2::LEFT_CENTER,
+                            "\u{1F50D} Search",
+                            egui::FontId::proportional(11.0),
+                            theme::TEXT_DISABLED,
+                        );
+                        ui.painter().text(
+                            egui::pos2(search_rect.right() - 10.0, cy),
+                            egui::Align2::RIGHT_CENTER,
+                            "\u{2318}K",
+                            egui::FontId::monospace(10.0),
+                            theme::TEXT_DISABLED,
                         );
                     },
                 );
             });
         });
+}
+
+fn vertical_separator(ui: &mut egui::Ui) {
+    let (sep_rect, _) =
+        ui.allocate_exact_size(egui::vec2(1.0, 18.0), egui::Sense::hover());
+    ui.painter().rect_filled(sep_rect, 0.0, theme::BG_SURFACE0);
 }
