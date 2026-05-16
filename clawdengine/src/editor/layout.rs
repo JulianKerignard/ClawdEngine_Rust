@@ -377,6 +377,16 @@ pub fn entity_icon(world: &World, id: EntityId) -> (&'static str, Color32) {
     }
 }
 
+/// Small mid-dot separator used between status bar items.
+fn status_dot_sep(ui: &mut egui::Ui) {
+    ui.label(
+        egui::RichText::new("\u{00B7}")
+            .color(theme::TEXT_DISABLED.gamma_multiply(0.6))
+            .monospace()
+            .size(10.5),
+    );
+}
+
 // ---- Main Layout Entry Point ----
 
 pub struct EditorLayout;
@@ -392,6 +402,10 @@ impl EditorLayout {
     ) {
         // Header stays OUTSIDE the dock area (TopBottomPanel)
         header::show_header(ctx, editor_ctx);
+
+        // Status bar — must be registered BEFORE the DockArea (same as the
+        // header) so the dock fills the remaining central space.
+        Self::show_status_bar(ctx, editor_ctx);
 
         // Extract dock_state to separate borrows (same pattern as scripts)
         let mut dock_state = std::mem::replace(
@@ -421,6 +435,94 @@ impl EditorLayout {
         // Asset modal (rendered at egui::Context level, not inside dock)
         Self::show_asset_modal(ctx, editor_ctx);
         Self::show_confirm_delete_asset_modal(ctx, editor_ctx);
+    }
+
+    /// Bottom status bar (mockup's 24px footer). Registered before the dock so
+    /// it reserves space at the bottom of the window.
+    fn show_status_bar(ctx: &egui::Context, editor_ctx: &EditorContext) {
+        egui::TopBottomPanel::bottom("statusbar")
+            .exact_height(24.0)
+            .resizable(false)
+            .frame(
+                Frame::NONE
+                    .fill(theme::BG_MANTLE)
+                    .inner_margin(Margin::symmetric(10, 0))
+                    .stroke(Stroke::new(1.0, theme::BG_SURFACE0)),
+            )
+            .show(ctx, |ui| {
+                ui.horizontal_centered(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+
+                    // Live indicator dot
+                    let (dot_rect, _) =
+                        ui.allocate_exact_size(egui::vec2(7.0, 7.0), egui::Sense::hover());
+                    ui.painter()
+                        .circle_filled(dot_rect.center(), 3.0, theme::SUCCESS);
+
+                    let state_label = if editor_ctx.play_mode {
+                        "Editor \u{2022} Play mode"
+                    } else {
+                        "Editor \u{2022} idle"
+                    };
+                    ui.label(
+                        egui::RichText::new(state_label)
+                            .color(theme::TEXT_DISABLED)
+                            .monospace()
+                            .size(10.5),
+                    );
+
+                    status_dot_sep(ui);
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Entities {}",
+                            editor_ctx.entity_count
+                        ))
+                        .color(theme::TEXT_DISABLED)
+                        .monospace()
+                        .size(10.5),
+                    );
+
+                    status_dot_sep(ui);
+                    let frame_ms = if editor_ctx.fps > 0.0 {
+                        1000.0 / editor_ctx.fps
+                    } else {
+                        0.0
+                    };
+                    ui.label(
+                        egui::RichText::new(format!("Frame {:.1} ms", frame_ms))
+                            .color(theme::TEXT_DISABLED)
+                            .monospace()
+                            .size(10.5),
+                    );
+
+                    // Right side: build badge + git status
+                    ui.with_layout(
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            ui.label(
+                                egui::RichText::new("main \u{2022} clean")
+                                    .color(theme::TEXT_DISABLED)
+                                    .monospace()
+                                    .size(10.5),
+                            );
+                            ui.add_space(8.0);
+                            Frame::NONE
+                                .fill(theme::ACCENT_SOFT)
+                                .stroke(Stroke::new(1.0, theme::ACCENT))
+                                .corner_radius(CornerRadius::same(3))
+                                .inner_margin(Margin::symmetric(6, 1))
+                                .show(ui, |ui| {
+                                    ui.label(
+                                        egui::RichText::new("built with Rust \u{2022} wgpu")
+                                            .color(theme::ACCENT)
+                                            .monospace()
+                                            .size(10.0),
+                                    );
+                                });
+                        },
+                    );
+                });
+            });
     }
 
     /// Confirmation gate for asset deletion. Unlike entity deletion (captured

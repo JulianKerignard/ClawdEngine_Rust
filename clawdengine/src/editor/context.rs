@@ -332,27 +332,50 @@ impl EditorContext {
         }
     }
 
-    /// Creates the default dock layout: Hierarchy (15%) | Viewport (60%) | Inspector (25%)
+    /// Creates the default dock layout (mockup `232px 1fr 360px` workspace):
+    ///
+    /// ```text
+    /// ┌───────────┬───────────────────────┬───────────┐
+    /// │           │   Viewport / Game     │           │
+    /// │ Hierarchy │───────────────────────│ Inspector │
+    /// │           │   Assets / Console    │           │
+    /// └───────────┴───────────────────────┴───────────┘
+    /// ```
+    ///
+    /// Hierarchy (≈16% width, full height) | center column (Viewport/Game on
+    /// top, Assets/Console as a full-width bottom panel) | Inspector (≈22%
+    /// width, full height).
     pub fn default_dock_state() -> egui_dock::DockState<EditorTab> {
-        let mut dock_state = egui_dock::DockState::new(vec![EditorTab::Viewport, EditorTab::GameView]);
+        let mut dock_state =
+            egui_dock::DockState::new(vec![EditorTab::Viewport, EditorTab::GameView]);
         let surface = dock_state.main_surface_mut();
-        let [_old, _left] = surface.split_left(
+
+        // Hierarchy on the left (~16% of total width), full height. `center`
+        // keeps the remaining ~84%.
+        let [center, _hierarchy] = surface.split_left(
             egui_dock::NodeIndex::root(),
-            0.15,
+            0.16,
             vec![EditorTab::Hierarchy],
         );
-        // After split_left(0.15), root is 85% right. 25/85 ≈ 0.294
-        let [_center, _right] = surface.split_right(
-            egui_dock::NodeIndex::root(),
-            0.294,
+
+        // Inspector on the right, full height. We want ~22% of the *total*
+        // width; the center node only spans ~84%, so the new (right) node must
+        // take 22/84 ≈ 0.262 of it, leaving the center with ≈0.738.
+        let [center, _inspector] = surface.split_right(
+            center,
+            0.738,
             vec![EditorTab::Inspector],
         );
-        // Assets + Console tabs below Hierarchy (left column)
+
+        // Assets + Console as a full-width bottom panel under the *center*
+        // node only (so it does not span the side columns). Viewport/Game keep
+        // ~68% of the height, the bottom panel ~32%.
         let [_top, _bottom] = surface.split_below(
-            _left,
-            0.6,
+            center,
+            0.68,
             vec![EditorTab::Assets, EditorTab::Console],
         );
+
         dock_state
     }
 
