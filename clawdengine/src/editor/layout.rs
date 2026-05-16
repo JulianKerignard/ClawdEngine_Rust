@@ -588,13 +588,17 @@ impl EditorLayout {
                     );
 
                     status_dot_sep(ui);
+                    // Frame time printed with a fixed-width pattern (2 digits
+                    // + 1 decimal) so the label width is constant frame to
+                    // frame — avoids the surrounding layout shifting as the
+                    // value bounces (e.g. 6.9 -> 12.4 -> 9.1 ms).
                     let frame_ms = if editor_ctx.fps > 0.0 {
                         1000.0 / editor_ctx.fps
                     } else {
                         0.0
                     };
                     ui.label(
-                        egui::RichText::new(format!("Frame {:.1} ms", frame_ms))
+                        egui::RichText::new(format!("Frame {:>5.1} ms", frame_ms))
                             .color(theme::TEXT_DISABLED)
                             .monospace()
                             .size(10.5),

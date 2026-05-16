@@ -212,17 +212,21 @@ impl<'a> EditorTabViewer<'a> {
                             ui.style_mut().spacing.item_spacing.y = 2.0;
                             let mono = egui::FontId::new(10.5, egui::FontFamily::Monospace);
                             let ec = &self.editor_ctx;
+                            // Right-padded values so the overlay width is
+                            // stable across frames (an Area's frame grows to
+                            // fit its content, so jittering numeric widths
+                            // would pulse the panel size).
                             let frame_ms = if ec.fps > 0.0 {
-                                format!("{:.1}ms", 1000.0 / ec.fps)
+                                format!("{:>5.1}ms", 1000.0 / ec.fps)
                             } else {
-                                "—".to_string()
+                                "    —".to_string()
                             };
                             let rows: &[(&str, String)] = &[
-                                ("FPS",   format!("{:.0}", ec.fps)),
+                                ("FPS",   format!("{:>5.0}", ec.fps)),
                                 ("Frame", frame_ms),
-                                ("Draws", format!("{}", ec.draw_calls)),
-                                ("Tris",  format!("{}", ec.visible_triangles)),
-                                ("VRAM",  "—".to_string()),
+                                ("Draws", format!("{:>5}", ec.draw_calls)),
+                                ("Tris",  format!("{:>7}", ec.visible_triangles)),
+                                ("VRAM",  "    —".to_string()),
                             ];
                             for (key, val) in rows {
                                 ui.horizontal(|ui| {

@@ -5,12 +5,6 @@ use super::theme;
 
 const ENGINE_VERSION: &str = "0.4.x";
 
-/// Persistent id tracking hover state of the decorative search field so the
-/// accent focus ring can be drawn on the next frame.
-fn search_hover_id() -> egui::Id {
-    egui::Id::new("header_search_hover")
-}
-
 pub fn show_header(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
     show_menubar(ctx, editor_ctx);
     show_toolbar(ctx, editor_ctx);
@@ -350,9 +344,13 @@ fn show_toolbar(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
                         }
 
                         let (err_count, warn_count, _, _) = editor_ctx.log_buffer.counts();
+                        // Fixed-width FPS / entity count so the right-to-left
+                        // layout doesn't shuffle as values change frame to
+                        // frame (was causing perceived flicker of the search
+                        // field and Play button on its left).
                         ui.label(
                             egui::RichText::new(format!(
-                                "{:.0} FPS | {} entities",
+                                "{:>4.0} FPS | {:>3} entities",
                                 editor_ctx.fps, editor_ctx.entity_count
                             ))
                             .color(theme::TEXT_DISABLED)
@@ -395,45 +393,44 @@ fn show_toolbar(ctx: &egui::Context, editor_ctx: &mut EditorContext) {
 
                         ui.add_space(8.0);
 
-                        // Decorative search field with ⌘K hint. Shows an
-                        // accent focus ring on hover (mockup parity).
-                        let search_hovered = ui
-                            .ctx()
-                            .data(|d| d.get_temp::<bool>(search_hover_id()))
-                            .unwrap_or(false);
-                        let search_stroke = if search_hovered {
-                            Stroke::new(2.0, theme::ACCENT_RING)
+                        // Decorative search field with ⌘K hint.
+                        //
+                        // The frame is allocated with a FIXED size and a
+                        // CONSTANT 1px stroke whose color toggles on hover —
+                        // we used to change the stroke thickness 1->2px, but
+                        // the wider border shifted the hit rect by a pixel,
+                        // pushing the cursor out of the hovered area on the
+                        // next frame and causing visible 1-frame flicker.
+                        let search_size = egui::vec2(150.0, 22.0);
+                        let (search_rect, search_resp) =
+                            ui.allocate_exact_size(search_size, egui::Sense::hover());
+                        let stroke_color = if search_resp.hovered() {
+                            theme::ACCENT
                         } else {
-                            Stroke::new(1.0, theme::BG_SURFACE0)
+                            theme::BG_SURFACE0
                         };
-                        let search_resp = Frame::NONE
-                            .fill(theme::BG_CRUST)
-                            .stroke(search_stroke)
-                            .corner_radius(CornerRadius::same(5))
-                            .inner_margin(Margin::symmetric(8, 3))
-                            .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.label(
-                                        egui::RichText::new("\u{1F50D} Search")
-                                            .color(theme::TEXT_DISABLED)
-                                            .size(11.0),
-                                    );
-                                    ui.add_space(6.0);
-                                    ui.label(
-                                        egui::RichText::new("\u{2318}K")
-                                            .color(theme::TEXT_DISABLED)
-                                            .monospace()
-                                            .size(10.0),
-                                    );
-                                });
-                            })
-                            .response;
-                        let now_hovered = search_resp
-                            .interact(egui::Sense::hover())
-                            .hovered();
-                        ui.ctx().data_mut(|d| {
-                            d.insert_temp(search_hover_id(), now_hovered);
-                        });
+                        ui.painter().rect(
+                            search_rect,
+                            CornerRadius::same(5),
+                            theme::BG_CRUST,
+                            Stroke::new(1.0, stroke_color),
+                            egui::StrokeKind::Inside,
+                        );
+                        let cy = search_rect.center().y;
+                        ui.painter().text(
+                            egui::pos2(search_rect.left() + 10.0, cy),
+                            egui::Align2::LEFT_CENTER,
+                            "\u{1F50D} Search",
+                            egui::FontId::proportional(11.0),
+                            theme::TEXT_DISABLED,
+                        );
+                        ui.painter().text(
+                            egui::pos2(search_rect.right() - 10.0, cy),
+                            egui::Align2::RIGHT_CENTER,
+                            "\u{2318}K",
+                            egui::FontId::monospace(10.0),
+                            theme::TEXT_DISABLED,
+                        );
                     },
                 );
             });
